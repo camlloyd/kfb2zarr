@@ -1,0 +1,35 @@
+[package]
+name = "kfb2zarr"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+description = "Convert KFBio whole slide images (.kfb, .kfbf) to OME-Zarr"
+documentation = "https://docs.rs/kfb2zarr"
+readme = "README.md"
+homepage = "https://github.com/camlloyd/kfb2zarr"
+repository = "https://github.com/camlloyd/kfb2zarr"
+license-file = "LICENSE"
+keywords = ["wsi", "zarr", "pathology", "cli"]
+categories = ["science", "encoding", "parser-implementations", "command-line-utilities", "filesystem"]
+
+[lib]
+name = "kfb2zarr"
+
+[[bin]]
+name = "kfb2zarr"
+path = "src/bin/kfb2zarr.rs"
+
+[dependencies]
+byteorder = "1"
+memmap2 = "0.9"
+zune-jpeg = "0.4"
+zarrs = { version = "0.22", features = ["blosc", "filesystem"] }
+rayon = "1"
+thiserror = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+zune-core = "0.4"
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

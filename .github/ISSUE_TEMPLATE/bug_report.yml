@@ -1,0 +1,41 @@
+name: Bug report
+description: Create a report to help us improve
+title: "[Bug]: "
+labels: []
+assignees: []
+body:
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have checked that the [latest version](https://github.com/camlloyd/kfb2zarr/releases/latest) does not solve this issue.
+          required: true
+        - label: I have checked the [issues](https://github.com/camlloyd/kfb2zarr/issues) for similar issues.
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the bug...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: To Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        kfb2zarr <ARGS>
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        - kfb2zarr version: (e.g. kfb2zarr 0.1.0)
+        - OS and version: (e.g. Windows 11 25H2, macOS Sequoia 15.7.4, Ubuntu 24.04.4 LTS)
+    validations:
+      required: true

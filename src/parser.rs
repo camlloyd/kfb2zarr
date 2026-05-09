@@ -43,14 +43,14 @@ pub(crate) fn parse_header(data: &[u8]) -> Result<KfbHeader, KfbError> {
     let base_height = cur.read_i32::<LittleEndian>()?;
     let base_width = cur.read_i32::<LittleEndian>()?;
     let scan_scale = cur.read_i32::<LittleEndian>()?;
-    let mut _codec = [0u8; 4];
+    let mut _codec = [0u8; 8];
     std::io::Read::read_exact(&mut cur, &mut _codec)?;
     let spend_time = cur.read_i32::<LittleEndian>()?;
-    let scan_time = cur.read_i64::<LittleEndian>()?;
-    cur.set_position(cur.position() + 4);
-    let kfb_tile_size = cur.read_i32::<LittleEndian>()?;
-    cur.set_position(cur.position() + 20);
+    let scan_time = cur.read_i32::<LittleEndian>()? as i64;
+    cur.set_position(0x4C - 0x10);
     let image_cap_res = cur.read_f32::<LittleEndian>()? as f64;
+    cur.set_position(0x58 - 0x10);
+    let kfb_tile_size = cur.read_i32::<LittleEndian>()?;
 
     let (base_width, base_height, channel_count, tile_size) = match format {
         KfbFormat::Brightfield => (base_width, base_height, 3, kfb_tile_size),

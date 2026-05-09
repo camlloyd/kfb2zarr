@@ -30,6 +30,7 @@ fn reader_parses_kfb_header_dimensions_and_metadata() {
     assert_eq!(reader.header().scan_scale(), 40);
     assert!((reader.header().mpp() - 0.242).abs() < 1e-5);
     assert_eq!(reader.header().tile_size(), 256);
+    assert_eq!(reader.header().scan_time(), 1700000000);
     assert!(reader.header().zoom_levels() > 0);
 }
 

@@ -55,7 +55,7 @@ pub struct HeaderSection {
     pub base_height: i32,
     pub scan_scale: i32,
     pub spend_time: i32,
-    pub scan_time: i64,
+    pub scan_time: i32,
     pub image_cap_res: f32,
     pub tile_size: i32,
 }
@@ -77,25 +77,20 @@ impl Default for HeaderSection {
 
 pub fn make_header_section(section: HeaderSection) -> Vec<u8> {
     let mut buf = Vec::new();
-    buf.extend_from_slice(&HEADER_START); // bytes 0-3
-    buf.extend_from_slice(&[0u8; 12]); // bytes 4-15: padding/version
+    buf.extend_from_slice(&HEADER_START);
+    buf.extend_from_slice(&[0u8; 12]);
     buf.write_i32::<LittleEndian>(section.tile_count).unwrap();
     buf.write_i32::<LittleEndian>(section.base_height).unwrap();
     buf.write_i32::<LittleEndian>(section.base_width).unwrap();
     buf.write_i32::<LittleEndian>(section.scan_scale).unwrap();
-    buf.extend_from_slice(b"JPEG");
+    buf.extend_from_slice(b"JPEG\0\0\0\0");
     buf.write_i32::<LittleEndian>(section.spend_time).unwrap();
-    buf.write_i64::<LittleEndian>(section.scan_time).unwrap();
-    buf.extend_from_slice(&[0u8; 4]); // bytes 48-51: skip
-    buf.write_i32::<LittleEndian>(section.tile_size).unwrap(); // bytes 52-55
-    buf.extend_from_slice(&[0u8; 20]); // bytes 56-75: skip
+    buf.write_i32::<LittleEndian>(section.scan_time).unwrap();
+    buf.extend_from_slice(&[0u8; 28]); // → 0x4C
     buf.write_f32::<LittleEndian>(section.image_cap_res)
-        .unwrap(); // bytes 76-79
-    // pad content to 88 bytes (96 total - 4 start - 4 end), then end marker
-    let content_so_far = buf.len() - 4; // subtract start marker
-    if content_so_far < 88 {
-        buf.extend(std::iter::repeat_n(0u8, 88 - content_so_far));
-    }
+        .unwrap();
+    buf.extend_from_slice(&[0u8; 8]); // → 0x58
+    buf.write_i32::<LittleEndian>(section.tile_size).unwrap();
     buf.extend_from_slice(&HEADER_END);
     assert_eq!(buf.len(), 96, "header section must be exactly 96 bytes");
     buf

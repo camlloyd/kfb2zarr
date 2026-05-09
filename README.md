@@ -4,10 +4,15 @@ Convert [KFBio](https://www.kfbio.cn) whole slide images (`.kfb`, `.kfbf`) to [O
 
 ## Installation
 
-Requires [Rust](https://rustup.rs).
+via cargo:
 
 ```sh
 cargo install kfb2zarr
+```
+
+via conda:
+```sh
+conda install bioconda::kfb2zarr
 ```
 
 ## Usage

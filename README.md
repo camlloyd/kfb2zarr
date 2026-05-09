@@ -34,8 +34,6 @@ The output `.ome.zarr` can be viewed locally with:
 - **[QuPath](https://qupath.github.io/)** ≥ 0.7.0 via drag & drop
 - **[napari](https://napari.org/)** via the [napari-ome-zarr](https://github.com/ome/napari-ome-zarr) plugin
 
-Output has been spot-checked in QuPath and vizarr against the same files opened in KFBio's KFSlideOS viewer.
-
 ## Acknowledgements
 
 Sample data used during development was kindly provided by KFBio.

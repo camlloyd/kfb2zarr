@@ -9,6 +9,7 @@ authors:
     orcid: "https://orcid.org/0000-0003-1055-2282"
 license: "MIT"
 version: 0.1.1
+doi: 10.5281/zenodo.20101669
 date-released: '2026-05-10'
 references:
   - type: software

@@ -1,18 +1,14 @@
-# This CITATION.cff file was generated with cffinit.
-# Visit https://bit.ly/cffinit to generate yours today!
-
 cff-version: 1.2.0
-title: kfb2zarr: Convert KFBio whole slide images (.kfb, .kfbf) to OME-Zarr
-message: >-
-  If you use this software, please cite it using the
-  metadata from this file.
+title: "kfb2zarr"
+message: "If you use this software, please cite it as below."
 type: software
+abstract: "Convert KFBio whole slide images (.kfb, .kfbf) to OME-Zarr"
 authors:
   - family-names: Lloyd
     given-names: Cameron
-    orcid: 'https://orcid.org/0000-0003-1055-2282'
-license: MIT
-version: '0.1.0'
+    orcid: "https://orcid.org/0000-0003-1055-2282"
+license: "MIT"
+version: 0.1.0
 date-released: '2026-05-09'
 references:
   - type: software

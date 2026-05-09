@@ -883,7 +883,8 @@ mod tests {
     fn ome_xml_records_creator_and_metadata_only() {
         let (_dir, out) = make_single_tile_zarr();
         let xml = std::fs::read_to_string(out.join("OME/METADATA.ome.xml")).unwrap();
-        assert!(xml.contains(r#"Creator="kfb2zarr 0.1.0""#));
+        let expected = format!(r#"Creator="kfb2zarr {}""#, env!("CARGO_PKG_VERSION"));
+        assert!(xml.contains(&expected), "missing {expected:?} in {xml}");
         assert!(xml.contains("<MetadataOnly/>"));
     }
 

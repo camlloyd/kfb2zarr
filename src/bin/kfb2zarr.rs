@@ -13,10 +13,20 @@ struct Args {
     /// Overwrite the output store if it already exists
     #[arg(long)]
     overwrite: bool,
+    /// Threads for tile decode and write. 0 (default) uses all CPU cores.
+    #[arg(long, default_value_t = 0)]
+    threads: usize,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    if args.threads > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(args.threads)
+            .build_global()
+            .map_err(|e| anyhow::anyhow!("failed to configure thread pool: {e}"))?;
+    }
 
     if args.output.exists() {
         if !args.overwrite {

@@ -29,6 +29,12 @@ To replace an existing output store:
 kfb2zarr slide.kfb slide.ome.zarr --overwrite
 ```
 
+To limit CPU usage (default uses all cores):
+
+```sh
+kfb2zarr slide.kfb slide.ome.zarr --threads 4
+```
+
 ## Viewing the output
 
 The output `.ome.zarr` can be viewed locally with:

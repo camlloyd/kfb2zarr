@@ -131,9 +131,6 @@ impl KfbHeader {
     }
 }
 
-pub(crate) type DecodedTile = (TileInfo, Vec<u8>, u64, u64);
-pub(crate) type DecodedLevels = Vec<Vec<DecodedTile>>;
-
 #[derive(Debug)]
 pub(crate) struct DecodedAssociatedImage {
     pub kind: AssociatedImageKind,

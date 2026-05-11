@@ -422,6 +422,52 @@ fn reader_parses_kfbf_label_associated_image() {
     );
 }
 
+fn open_with_tile_size(base_width: i32, base_height: i32, tile_size: i32) -> KfbReader {
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(&common::make_header_section(common::HeaderSection {
+        base_width,
+        base_height,
+        tile_size,
+        ..Default::default()
+    }))
+    .unwrap();
+    f.flush().unwrap();
+    let reader = KfbReader::open(f.path()).unwrap();
+    drop(f);
+    reader
+}
+
+#[test]
+fn zoom_levels_scales_with_256px_tile_size() {
+    assert_eq!(
+        open_with_tile_size(65536, 49152, 256)
+            .header()
+            .zoom_levels(),
+        9
+    );
+}
+
+#[test]
+fn zoom_levels_scales_with_512px_tile_size() {
+    assert_eq!(
+        open_with_tile_size(65536, 49152, 512)
+            .header()
+            .zoom_levels(),
+        8
+    );
+}
+
+#[test]
+fn zoom_levels_returns_one_when_image_fits_in_single_tile() {
+    assert_eq!(open_with_tile_size(128, 64, 256).header().zoom_levels(), 1);
+}
+
+#[test]
+fn zoom_levels_clamps_zero_tile_size_to_one_pixel() {
+    // tile_size=0 is clamped to 1; effective depth = ceil(log2(256/1)) + 1 = 9
+    assert_eq!(open_with_tile_size(256, 256, 0).header().zoom_levels(), 9);
+}
+
 #[test]
 fn open_nonexistent_file_returns_io_error() {
     let err = KfbReader::open(std::path::Path::new("/nonexistent/file.kfb")).unwrap_err();

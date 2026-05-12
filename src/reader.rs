@@ -145,7 +145,7 @@ impl KfbReader {
         let max_mag = header.scan_scale() as f32;
         let channel_count = header.channel_count();
         let mut tiles = Vec::with_capacity(header.tile_count() as usize * channel_count);
-        let mut row_state: std::collections::HashMap<i32, (Option<i32>, i32)> =
+        let mut col_state: std::collections::HashMap<i32, (Option<i32>, i32)> =
             std::collections::HashMap::new();
         let tile_index_offset = read_u64_le(data, 0x44)? as usize;
 
@@ -163,14 +163,15 @@ impl KfbReader {
             }
 
             let spatial = parse_kfbf_tile_info(&data[i..end], i as u64, max_mag)?;
-            let state = row_state.entry(spatial.zoom_level).or_insert((None, 0));
-            if let Some(previous_x) = state.0 {
-                if spatial.pos_x < previous_x {
+            let state = col_state.entry(spatial.zoom_level).or_insert((None, 0));
+            if let Some(prev) = state.0 {
+                if spatial.pos_y < prev {
                     state.1 += header.tile_size();
                 }
             }
-            state.0 = Some(spatial.pos_x);
-            let pos_y = state.1;
+            state.0 = Some(spatial.pos_y);
+            let pos_x = state.1;
+            let pos_y = spatial.pos_y;
 
             for channel_index in 0..channel_count {
                 let offset_table_pos = spatial.offset_table + (channel_index as u64 * 8);
@@ -183,7 +184,7 @@ impl KfbReader {
                         file_len: data.len() as u64,
                     })?;
                 tiles.push(TileInfo::from_fields(TileInfoFields {
-                    pos_x: spatial.pos_x,
+                    pos_x,
                     pos_y,
                     width: spatial.width,
                     height: spatial.height,

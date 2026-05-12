@@ -198,7 +198,7 @@ fn hwc_to_chw_padded(
     chw
 }
 
-fn copy_transposed_luma_plane(
+fn copy_luma_plane(
     chunk: &mut [u8],
     luma: &[u8],
     channel_index: usize,
@@ -208,13 +208,11 @@ fn copy_transposed_luma_plane(
     dst_h: usize,
 ) {
     let plane_start = channel_index * dst_h * dst_w;
-    let copy_raw_y = raw_h.min(dst_w);
-    let copy_raw_x = raw_w.min(dst_h);
-    for raw_y in 0..copy_raw_y {
-        for raw_x in 0..copy_raw_x {
-            let dst_x = raw_y;
-            let dst_y = raw_x;
-            chunk[plane_start + dst_y * dst_w + dst_x] = luma[raw_y * raw_w + raw_x];
+    let copy_w = raw_w.min(dst_w);
+    let copy_h = raw_h.min(dst_h);
+    for raw_y in 0..copy_h {
+        for raw_x in 0..copy_w {
+            chunk[plane_start + raw_y * dst_w + raw_x] = luma[raw_y * raw_w + raw_x];
         }
     }
 }
@@ -354,7 +352,7 @@ fn write_fluorescence_level(
             for tile in chunk_tiles {
                 let jpeg = reader.read_tile_bytes(tile)?;
                 let (luma, raw_w, raw_h) = decode_jpeg_luma(jpeg)?;
-                copy_transposed_luma_plane(
+                copy_luma_plane(
                     &mut chunk,
                     &luma,
                     tile.channel_index(),
@@ -635,6 +633,17 @@ mod tests {
             Some("2020-02-29T23:59:59Z".to_string())
         );
         assert_eq!(format_utc_timestamp(0), None);
+    }
+
+    #[test]
+    fn fluorescence_luma_plane_copies_directly() {
+        let luma = vec![1u8, 2, 3, 4, 5, 6];
+        let mut chunk = vec![0u8; 4 * 4];
+
+        copy_luma_plane(&mut chunk, &luma, 0, 3, 2, 4, 4);
+
+        assert_eq!(&chunk[0..4], &[1, 2, 3, 0]);
+        assert_eq!(&chunk[4..8], &[4, 5, 6, 0]);
     }
 
     #[test]

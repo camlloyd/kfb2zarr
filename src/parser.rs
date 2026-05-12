@@ -11,7 +11,7 @@ const HEADER_START: [u8; 4] = [0xF1, 0x01, 0xEE, 0xEE];
 const TILE_INFO_START: [u8; 4] = [0xF1, 0x04, 0xEE, 0xEE];
 
 pub(crate) struct KfbfTileInfo {
-    pub pos_x: i32,
+    pub pos_y: i32,
     pub width: i32,
     pub height: i32,
     pub zoom_level: i32,
@@ -321,7 +321,7 @@ pub(crate) fn parse_kfbf_tile_info(
     }
 
     let mut cur = Cursor::new(&data[8..]);
-    let pos_x = cur.read_i32::<LittleEndian>()?;
+    let pos_y = cur.read_i32::<LittleEndian>()?;
     let tile_h = cur.read_i32::<LittleEndian>()?;
     let tile_w = cur.read_i32::<LittleEndian>()?;
     let mag = cur.read_f32::<LittleEndian>()?;
@@ -337,7 +337,7 @@ pub(crate) fn parse_kfbf_tile_info(
     };
 
     Ok(KfbfTileInfo {
-        pos_x,
+        pos_y,
         width: tile_w,
         height: tile_h,
         zoom_level,

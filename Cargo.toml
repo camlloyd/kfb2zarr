@@ -8,7 +8,7 @@ documentation = "https://docs.rs/kfb2zarr"
 readme = "README.md"
 homepage = "https://github.com/camlloyd/kfb2zarr"
 repository = "https://github.com/camlloyd/kfb2zarr"
-license-file = "LICENSE"
+license = "MIT OR Apache-2.0"
 keywords = ["wsi", "zarr", "pathology", "cli"]
 categories = ["science", "encoding", "parser-implementations", "command-line-utilities", "filesystem"]
 

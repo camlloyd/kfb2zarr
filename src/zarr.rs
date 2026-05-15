@@ -154,24 +154,13 @@ fn write_ome_xml_metadata(
     fs::write(metadata_dir.join("METADATA.ome.xml"), xml).map_err(zarr_err)
 }
 
-fn tile_level_dimensions(header: &KfbHeader, level_index: usize, tiles: &[TileInfo]) -> (u64, u64) {
-    let tile_bounds = tiles.iter().fold(None::<(u64, u64)>, |bounds, tile| {
+fn base_level_dimensions(header: &KfbHeader, tiles: &[TileInfo]) -> (u64, u64) {
+    let header_bounds = (header.base_width() as u64, header.base_height() as u64);
+    tiles.iter().fold(header_bounds, |(w, h), tile| {
         let max_x = (tile.pos_x() + tile.width()).max(0) as u64;
         let max_y = (tile.pos_y() + tile.height()).max(0) as u64;
-        Some(match bounds {
-            Some((w, h)) => (w.max(max_x), h.max(max_y)),
-            None => (max_x, max_y),
-        })
-    });
-    let scale_factor = 1u64 << level_index;
-    let header_bounds = (
-        (header.base_width() as u64).div_ceil(scale_factor),
-        (header.base_height() as u64).div_ceil(scale_factor),
-    );
-    match tile_bounds {
-        Some((tile_w, tile_h)) => (header_bounds.0.max(tile_w), header_bounds.1.max(tile_h)),
-        None => header_bounds,
-    }
+        (w.max(max_x), h.max(max_y))
+    })
 }
 
 /// Reorder a tile's pixel data from interleaved HWC (JPEG output) to planar CHW
@@ -396,10 +385,18 @@ pub(crate) fn write_ome_zarr(
     associated_images: &[DecodedAssociatedImage],
 ) -> Result<(), KfbError> {
     let tile_size = infer_chunk_tile_size(reader, header, tiles_by_level)?;
+    let base_dimensions =
+        base_level_dimensions(header, tiles_by_level.first().map_or(&[], Vec::as_slice));
     let level_dimensions: Vec<_> = tiles_by_level
         .iter()
         .enumerate()
-        .map(|(i, tiles)| tile_level_dimensions(header, i, tiles))
+        .map(|(i, _)| {
+            let scale_factor = 1u64 << i;
+            (
+                base_dimensions.0.div_ceil(scale_factor),
+                base_dimensions.1.div_ceil(scale_factor),
+            )
+        })
         .collect();
 
     write_ome_zarr_with_level_writer(

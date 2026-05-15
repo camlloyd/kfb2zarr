@@ -304,10 +304,83 @@ fn reader_parses_kfbf_channel_tiles_from_indirection_tables() {
     assert_eq!(reader.tiles().len(), 6);
     for (channel, tile) in reader.tiles().iter().enumerate() {
         assert_eq!(tile.channel_index(), channel);
+        assert_eq!(tile.pos_x(), 0);
+        assert_eq!(tile.pos_y(), 0);
         assert_eq!(tile.width(), 512);
         assert_eq!(tile.height(), 512);
         assert_eq!(reader.read_tile_bytes(tile).unwrap()[2], channel as u8);
     }
+}
+
+#[test]
+fn reader_derives_kfbf_tile_columns_from_wrapped_y_coordinates() {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut data = vec![0u8; 192];
+    data[0..4].copy_from_slice(&common::HEADER_START);
+    data[4..8].copy_from_slice(b"KFBF");
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x10..]);
+        cur.write_i32::<LittleEndian>(3).unwrap();
+        cur.write_i32::<LittleEndian>(1024).unwrap();
+        cur.write_i32::<LittleEndian>(1024).unwrap();
+        cur.write_i32::<LittleEndian>(40).unwrap();
+        cur.write_all(b"JPEG").unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x44..]);
+        cur.write_u64::<LittleEndian>(192).unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x58..]);
+        cur.write_i32::<LittleEndian>(512).unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0xb0..]);
+        cur.write_u32::<BigEndian>(1).unwrap();
+    }
+
+    let positions = [0, 512, 0];
+    let offset_table_start = 192 + 64 * positions.len();
+    let jpeg_start = offset_table_start + 16 * positions.len();
+    for (i, y) in positions.iter().enumerate() {
+        let offset_table = (offset_table_start + i * 16) as u64;
+        let length_table = offset_table + 8;
+        let mut tile = Vec::new();
+        tile.extend_from_slice(&common::TILE_INFO_START);
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(*y).unwrap();
+        tile.write_i32::<LittleEndian>(512).unwrap();
+        tile.write_i32::<LittleEndian>(512).unwrap();
+        tile.write_f32::<LittleEndian>(40.0).unwrap();
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(4).unwrap();
+        tile.write_u64::<LittleEndian>(offset_table).unwrap();
+        tile.write_u64::<LittleEndian>(length_table).unwrap();
+        tile.extend_from_slice(&[0u8; 8]);
+        tile.extend_from_slice(&common::TILE_INFO_END);
+        data.extend_from_slice(&tile);
+    }
+    assert_eq!(data.len(), offset_table_start);
+    for i in 0..positions.len() {
+        data.write_u64::<LittleEndian>((jpeg_start + i * 4) as u64)
+            .unwrap();
+        data.write_u64::<LittleEndian>(4).unwrap();
+    }
+    for i in 0..positions.len() as u8 {
+        data.extend_from_slice(&[0xFF, 0xD8, i, 0xD9]);
+    }
+
+    f.write_all(&data).unwrap();
+    f.flush().unwrap();
+
+    let reader = KfbReader::open(f.path()).unwrap();
+    let coords: Vec<_> = reader
+        .tiles()
+        .iter()
+        .map(|tile| (tile.pos_x(), tile.pos_y()))
+        .collect();
+    assert_eq!(coords, vec![(0, 0), (0, 512), (512, 0)]);
 }
 
 #[test]

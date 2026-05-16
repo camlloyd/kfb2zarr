@@ -8,9 +8,9 @@ authors:
     given-names: Cameron
     orcid: "https://orcid.org/0000-0003-1055-2282"
 license: "MIT OR Apache-2.0"
-version: 0.1.2
+version: 0.1.3
 doi: 10.5281/zenodo.20125651
-date-released: '2026-05-11'
+date-released: '2026-05-16'
 references:
   - type: software
     title: "zarrs: A High-Performance Rust Library for the Zarr Array Storage Format"

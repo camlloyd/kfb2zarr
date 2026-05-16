@@ -108,6 +108,125 @@ fn synth_brightfield_two_level_kfb() -> NamedTempFile {
     f
 }
 
+fn synth_brightfield_odd_extent_two_level_kfb() -> NamedTempFile {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut buf = common::make_header_section(common::HeaderSection {
+        tile_count: 2,
+        base_width: 4,
+        base_height: 4,
+        scan_scale: 20,
+        image_cap_res: 0.25,
+        tile_size: 2,
+        ..Default::default()
+    });
+
+    let jpeg_offset_0 = buf.len() as i64;
+    buf.extend_from_slice(common::RED_1X1_JPEG);
+    let jpeg_offset_1 = buf.len() as i64;
+    buf.extend_from_slice(common::RED_1X1_JPEG);
+
+    let tile_info_pos_0 = buf.len() as i64;
+    let tile_info_0 = common::make_tile_info_section(
+        4,
+        1,
+        1,
+        20.0,
+        common::RED_1X1_JPEG.len() as i32,
+        jpeg_offset_0 - tile_info_pos_0,
+    );
+    buf.extend_from_slice(&tile_info_0);
+
+    let tile_info_1 = common::make_tile_info_section(
+        0,
+        2,
+        2,
+        10.0,
+        common::RED_1X1_JPEG.len() as i32,
+        jpeg_offset_1 - tile_info_pos_0,
+    );
+    buf.extend_from_slice(&tile_info_1);
+
+    f.write_all(&buf).unwrap();
+    f.flush().unwrap();
+    f
+}
+
+fn synth_fluorescence_odd_extent_two_level_kfbf() -> NamedTempFile {
+    let mut data = vec![0u8; 0xb4];
+    data[0..4].copy_from_slice(&common::HEADER_START);
+    data[4..8].copy_from_slice(b"KFBF");
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x10..]);
+        cur.write_i32::<LittleEndian>(2).unwrap();
+        cur.write_i32::<LittleEndian>(4).unwrap();
+        cur.write_i32::<LittleEndian>(4).unwrap();
+        cur.write_i32::<LittleEndian>(40).unwrap();
+        cur.write_all(b"JPEG").unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x4c..]);
+        cur.write_f32::<LittleEndian>(0.25).unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x58..]);
+        cur.write_i32::<LittleEndian>(2).unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0xb0..]);
+        cur.write_u32::<BigEndian>(1).unwrap();
+    }
+
+    let tile_info_pos = data.len();
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x44..]);
+        cur.write_u64::<LittleEndian>(tile_info_pos as u64).unwrap();
+    }
+
+    let offset_table_pos = tile_info_pos + 2 * 64;
+    let length_table_pos = offset_table_pos + 2 * 8;
+    let jpeg_payloads_pos = length_table_pos + 2 * 8;
+    let tile_specs = [(4, 1, 1, 40.0), (0, 2, 2, 20.0)];
+
+    for (i, (pos_y, tile_h, tile_w, magnification)) in tile_specs.iter().enumerate() {
+        let mut tile = Vec::new();
+        tile.extend_from_slice(&common::TILE_INFO_START);
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(*pos_y).unwrap();
+        tile.write_i32::<LittleEndian>(*tile_h).unwrap();
+        tile.write_i32::<LittleEndian>(*tile_w).unwrap();
+        tile.write_f32::<LittleEndian>(*magnification).unwrap();
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(1).unwrap();
+        tile.write_u64::<LittleEndian>((offset_table_pos + i * 8) as u64)
+            .unwrap();
+        tile.write_u64::<LittleEndian>((length_table_pos + i * 8) as u64)
+            .unwrap();
+        tile.extend_from_slice(&[0u8; 8]);
+        tile.extend_from_slice(&common::TILE_INFO_END);
+        data.extend_from_slice(&tile);
+    }
+
+    for i in 0..tile_specs.len() {
+        data.write_u64::<LittleEndian>(
+            jpeg_payloads_pos as u64 + (i as u64) * (common::RED_1X1_JPEG.len() as u64),
+        )
+        .unwrap();
+    }
+    for _ in 0..tile_specs.len() {
+        data.write_u64::<LittleEndian>(common::RED_1X1_JPEG.len() as u64)
+            .unwrap();
+    }
+    for _ in 0..tile_specs.len() {
+        data.extend_from_slice(common::RED_1X1_JPEG);
+    }
+
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(&data).unwrap();
+    f.flush().unwrap();
+    f
+}
+
 type KfbfChannelMetadata<'a> = (&'a [&'a str], &'a [[u8; 3]], &'a [f64]);
 
 /// Synthesize a KFBF (fluorescence) file with `channel_count` channels for one tile,
@@ -349,6 +468,22 @@ fn each_pyramid_level_halves_resolution() {
     let (_dir, out) = convert(f.path());
     assert_eq!(read_json(&out.join("0/.zarray"))["shape"], json!([3, 2, 2]));
     assert_eq!(read_json(&out.join("1/.zarray"))["shape"], json!([3, 1, 1]));
+}
+
+#[test]
+fn lower_pyramid_level_shapes_scale_from_level_0() {
+    let f = synth_brightfield_odd_extent_two_level_kfb();
+    let (_dir, out) = convert(f.path());
+    assert_eq!(read_json(&out.join("0/.zarray"))["shape"], json!([3, 5, 4]));
+    assert_eq!(read_json(&out.join("1/.zarray"))["shape"], json!([3, 3, 2]));
+}
+
+#[test]
+fn fluorescence_lower_pyramid_level_shapes_scale_from_level_0() {
+    let f = synth_fluorescence_odd_extent_two_level_kfbf();
+    let (_dir, out) = convert(f.path());
+    assert_eq!(read_json(&out.join("0/.zarray"))["shape"], json!([1, 5, 4]));
+    assert_eq!(read_json(&out.join("1/.zarray"))["shape"], json!([1, 3, 2]));
 }
 
 #[test]

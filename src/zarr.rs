@@ -177,11 +177,21 @@ fn hwc_to_chw_padded(
     let mut chw = vec![fill_value; 3 * dst_h * dst_w];
     let copy_w = src_w.min(dst_w);
     let copy_h = src_h.min(dst_h);
-    for c in 0..3usize {
-        for y in 0..copy_h {
-            for x in 0..copy_w {
-                chw[c * dst_h * dst_w + y * dst_w + x] = hwc[y * src_w * 3 + x * 3 + c];
-            }
+    let plane = dst_h * dst_w;
+
+    let (r_plane, rest) = chw.split_at_mut(plane);
+    let (g_plane, b_plane) = rest.split_at_mut(plane);
+
+    for y in 0..copy_h {
+        let src_row = &hwc[y * src_w * 3..][..copy_w * 3];
+        let r_row = &mut r_plane[y * dst_w..][..dst_w];
+        let g_row = &mut g_plane[y * dst_w..][..dst_w];
+        let b_row = &mut b_plane[y * dst_w..][..dst_w];
+
+        for (x, px) in src_row.chunks_exact(3).enumerate() {
+            r_row[x] = px[0];
+            g_row[x] = px[1];
+            b_row[x] = px[2];
         }
     }
     chw
@@ -200,9 +210,9 @@ fn copy_luma_plane(
     let copy_w = raw_w.min(dst_w);
     let copy_h = raw_h.min(dst_h);
     for raw_y in 0..copy_h {
-        for raw_x in 0..copy_w {
-            chunk[plane_start + raw_y * dst_w + raw_x] = luma[raw_y * raw_w + raw_x];
-        }
+        let src = &luma[raw_y * raw_w..][..copy_w];
+        let dst = &mut chunk[plane_start + raw_y * dst_w..][..dst_w];
+        dst[..copy_w].copy_from_slice(src);
     }
 }
 

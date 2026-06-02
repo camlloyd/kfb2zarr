@@ -408,14 +408,24 @@ fn multiscales_version_is_0_4() {
 #[test]
 fn axes_are_cyx() {
     let (_f, _dir, out) = single_tile();
-    let axes = read_json(&out.join(".zattrs"))["multiscales"][0]["axes"].clone();
-    let names: Vec<&str> = axes
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|a| a["name"].as_str().unwrap())
-        .collect();
-    assert_eq!(names, ["c", "y", "x"]);
+    let axes = &read_json(&out.join(".zattrs"))["multiscales"][0]["axes"];
+    let axes = axes.as_array().unwrap();
+    assert_eq!(axes.len(), 3);
+    assert_eq!(axes[0]["name"], "c");
+    assert_eq!(axes[0]["type"], "channel");
+    assert_eq!(axes[1]["name"], "y");
+    assert_eq!(axes[1]["type"], "space");
+    assert_eq!(axes[2]["name"], "x");
+    assert_eq!(axes[2]["type"], "space");
+}
+
+#[test]
+fn space_axes_have_micrometer_units() {
+    let (_f, _dir, out) = single_tile();
+    let axes = &read_json(&out.join(".zattrs"))["multiscales"][0]["axes"];
+    let axes = axes.as_array().unwrap();
+    assert_eq!(axes[1]["unit"], "micrometer");
+    assert_eq!(axes[2]["unit"], "micrometer");
 }
 
 #[test]

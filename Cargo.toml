@@ -24,6 +24,7 @@ byteorder = "1"
 memmap2 = "0.9"
 zune-jpeg = "0.4"
 zarrs = { version = "0.22", features = ["blosc", "filesystem"] }
+ome_zarr_metadata = "0.3"
 rayon = "1"
 thiserror = "1"
 anyhow = "1"

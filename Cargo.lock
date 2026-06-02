@@ -596,6 +596,7 @@ dependencies = [
  "byteorder",
  "clap",
  "memmap2",
+ "ome_zarr_metadata",
  "rayon",
  "serde_json",
  "tempfile",
@@ -736,7 +737,18 @@ version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3341a273f6c9d5bef1908f17b7267bbab0e95c9bf69a0d4dcf8e9e1b2c76ef67"
 dependencies = [
- "monostate-impl",
+ "monostate-impl 0.1.18",
+ "serde",
+ "serde_core",
+]
+
+[[package]]
+name = "monostate"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb4cc965c89dd0615a9e822ff8002f7633d2466143d51bd58693e4b2c75aabad"
+dependencies = [
+ "monostate-impl 1.0.2",
  "serde",
  "serde_core",
 ]
@@ -746,6 +758,17 @@ name = "monostate-impl"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4db6d5580af57bf992f59068d4ea26fd518574ff48d7639b255a36f9de6e7e9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "monostate-impl"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23f5b99488110875b5904839d396c2cdfaf241ff6622638acb879cc7effad5de"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -842,6 +865,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ome_zarr_metadata"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d81eb5a8bdffef08c3e61095a2e8ccf7d8346ea00be2e5a2ffdba861f2d957d3"
+dependencies = [
+ "monostate 1.0.2",
+ "paste",
+ "pep440_rs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "validatrix",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -893,10 +931,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
 name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
+
+[[package]]
+name = "pep440_rs"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31095ca1f396e3de32745f42b20deef7bc09077f918b085307e8eab6ddd8fb9c"
+dependencies = [
+ "once_cell",
+ "serde",
+ "unicode-width",
+ "unscanny",
+]
 
 [[package]]
 name = "pin-project-lite"
@@ -1297,6 +1353,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9629274872b2bfaf8d66f5f15725007f635594914870f65218920345aa11aa8c"
 
 [[package]]
+name = "unicode-width"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
 name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1307,6 +1369,12 @@ name = "unsafe_cell_slice"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6659959f702dcdaad77bd6e42a9409a32ceccc06943ec93c8a4306be00eb6cf1"
+
+[[package]]
+name = "unscanny"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9df2af067a7953e9c3831320f35c1cc0600c30d44d9f7a12b01db1cd88d6b47"
 
 [[package]]
 name = "utf8parse"
@@ -1323,6 +1391,15 @@ dependencies = [
  "getrandom 0.4.2",
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "validatrix"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd957910025504fc944e3efdb6298bad3b1783e44b814fb72854de37445567a0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1669,7 +1746,7 @@ checksum = "579803c6537c827b366fcd6cb0d78469f6a2978e6ab9768ce67526fdb85d7205"
 dependencies = [
  "derive_more",
  "half",
- "monostate",
+ "monostate 0.1.18",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1684,7 +1761,7 @@ dependencies = [
  "derive_more",
  "half",
  "log",
- "monostate",
+ "monostate 0.1.18",
  "num",
  "serde",
  "serde_json",

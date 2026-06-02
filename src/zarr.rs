@@ -2,6 +2,11 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use ome_zarr_metadata::v0_4::{
+    Axis, AxisType, AxisUnit, AxisUnitSpace, Channel, Color, CoordinateTransform,
+    CoordinateTransformScale, MultiscaleImage, MultiscaleImageDataset, OmeNgffGroupAttributes,
+    Omero, Window,
+};
 use rayon::prelude::*;
 use serde_json::json;
 use zarrs::array::Array;
@@ -223,23 +228,31 @@ fn associated_image_name(kind: AssociatedImageKind) -> &'static str {
     }
 }
 
-fn rgb_omero_channels() -> serde_json::Value {
-    let channel = |color: &str, label: &str| {
-        json!({
-            "active": true,
-            "coefficient": 1,
-            "color": color,
-            "family": "linear",
-            "inverted": false,
-            "label": label,
-            "window": {"end": 255, "max": 255, "min": 0, "start": 0}
-        })
-    };
-    json!([
-        channel("FF0000", "R"),
-        channel("00FF00", "G"),
-        channel("0000FF", "B"),
-    ])
+fn omero_channel(color: Color, label: &str) -> Channel {
+    Channel {
+        color,
+        window: Window {
+            min: 0.,
+            max: 255.,
+            start: 0.,
+            end: 255.,
+        },
+        other: serde_json::Map::from_iter([
+            ("active".into(), json!(true)),
+            ("coefficient".into(), json!(1)),
+            ("family".into(), json!("linear")),
+            ("inverted".into(), json!(false)),
+            ("label".into(), json!(label)),
+        ]),
+    }
+}
+
+fn rgb_omero_channels() -> Vec<Channel> {
+    vec![
+        omero_channel(Color { r: 255, g: 0, b: 0 }, "R"),
+        omero_channel(Color { r: 0, g: 255, b: 0 }, "G"),
+        omero_channel(Color { r: 0, g: 0, b: 255 }, "B"),
+    ]
 }
 
 fn write_associated_image(
@@ -250,37 +263,57 @@ fn write_associated_image(
     let name = associated_image_name(image.kind);
     let group_path = format!("/associated/{name}");
     let array_path = format!("{group_path}/0");
-    let axes = json!([
-        {"name": "c", "type": "channel"},
-        {"name": "y", "type": "space"},
-        {"name": "x", "type": "space"}
-    ]);
-    let attrs = serde_json::Map::from_iter([
-        (
-            "multiscales".to_string(),
-            json!([{
-                "version": "0.4",
-                "name": name,
-                "axes": axes,
-                "datasets": [{
-                    "path": "0",
-                    "coordinateTransformations": [
-                        {"type": "scale", "scale": [1.0, 1.0, 1.0]}
-                    ]
-                }],
-            }]),
-        ),
-        (
-            "omero".to_string(),
-            json!({
-                "id": 1,
-                "name": name,
-                "version": "0.4",
-                "channels": rgb_omero_channels(),
-                "rdefs": {"defaultT": 0, "defaultZ": 0, "model": "color"}
-            }),
-        ),
-    ]);
+    let ome_attrs = OmeNgffGroupAttributes {
+        multiscales: Some(vec![MultiscaleImage {
+            version: Default::default(),
+            name: Some(name.to_string()),
+            axes: vec![
+                Axis {
+                    name: "c".into(),
+                    r#type: Some(AxisType::Channel),
+                    unit: None,
+                },
+                Axis {
+                    name: "y".into(),
+                    r#type: Some(AxisType::Space),
+                    unit: None,
+                },
+                Axis {
+                    name: "x".into(),
+                    r#type: Some(AxisType::Space),
+                    unit: None,
+                },
+            ],
+            datasets: vec![MultiscaleImageDataset {
+                path: "0".into(),
+                coordinate_transformations: vec![CoordinateTransform::Scale(
+                    CoordinateTransformScale::List {
+                        scale: vec![1.0, 1.0, 1.0],
+                    },
+                )],
+            }],
+            coordinate_transformations: None,
+            r#type: None,
+            metadata: None,
+        }]),
+        omero: Some(Omero {
+            channels: rgb_omero_channels(),
+            other: serde_json::Map::from_iter([
+                ("id".into(), json!(1)),
+                ("name".into(), json!(name)),
+                ("version".into(), json!("0.4")),
+                (
+                    "rdefs".into(),
+                    json!({"defaultT": 0, "defaultZ": 0, "model": "color"}),
+                ),
+            ]),
+        }),
+        ..Default::default()
+    };
+    let serde_json::Value::Object(attrs) = serde_json::to_value(ome_attrs).map_err(zarr_err)?
+    else {
+        unreachable!()
+    };
 
     let group_meta: GroupMetadata = GroupMetadataV2::new().with_attributes(attrs).into();
     Group::new_with_metadata(store.clone(), &group_path, group_meta)
@@ -473,69 +506,87 @@ where
         .copied()
         .unwrap_or((header.base_width() as u64, header.base_height() as u64));
 
-    let axes = json!([
-        {"name": "c", "type": "channel"},
-        {"name": "y", "type": "space",   "unit": "micrometer"},
-        {"name": "x", "type": "space",   "unit": "micrometer"}
-    ]);
-    let mut datasets = Vec::with_capacity(num_levels);
-    for i in 0..num_levels {
-        let scale_factor = (1u64 << i) as f64;
-        datasets.push(json!({
-            "path": i.to_string(),
-            "coordinateTransformations": [
-                {"type": "scale", "scale": [1.0, mpp * scale_factor, mpp * scale_factor]}
-            ]
-        }));
-    }
-    let channel = |color: &str, label: &str, fill: u8| {
-        json!({
-            "active": true,
-            "coefficient": 1,
-            "color": color,
-            "family": "linear",
-            "inverted": false,
-            "label": label,
-            "window": {"end": 255, "max": 255, "min": 0, "start": fill}
+    let axes = vec![
+        Axis {
+            name: "c".into(),
+            r#type: Some(AxisType::Channel),
+            unit: None,
+        },
+        Axis {
+            name: "y".into(),
+            r#type: Some(AxisType::Space),
+            unit: Some(AxisUnit::Space(AxisUnitSpace::Micrometer)),
+        },
+        Axis {
+            name: "x".into(),
+            r#type: Some(AxisType::Space),
+            unit: Some(AxisUnit::Space(AxisUnitSpace::Micrometer)),
+        },
+    ];
+    let datasets: Vec<MultiscaleImageDataset> = (0..num_levels)
+        .map(|i| {
+            let scale_factor = (1u64 << i) as f64;
+            MultiscaleImageDataset {
+                path: i.to_string(),
+                coordinate_transformations: vec![CoordinateTransform::Scale(
+                    CoordinateTransformScale::List {
+                        scale: vec![
+                            1.0,
+                            (mpp * scale_factor) as f32,
+                            (mpp * scale_factor) as f32,
+                        ],
+                    },
+                )],
+            }
         })
-    };
-    let channels: Vec<_> = if !header.channels().is_empty() {
+        .collect();
+    let channels: Vec<Channel> = if !header.channels().is_empty() {
         header
             .channels()
             .iter()
             .map(|ch| {
-                let hex = format!(
-                    "{:02X}{:02X}{:02X}",
-                    ch.color_rgb[0], ch.color_rgb[1], ch.color_rgb[2]
-                );
-                channel(&hex, &ch.name, 0)
+                omero_channel(
+                    Color {
+                        r: ch.color_rgb[0],
+                        g: ch.color_rgb[1],
+                        b: ch.color_rgb[2],
+                    },
+                    &ch.name,
+                )
             })
             .collect()
     } else if header.is_fluorescence() {
-        let fluorescence_colors = ["0000FF", "00FF00", "FF0000", "FFFF00", "FF00FF", "00FFFF"];
+        let fluorescence_colors = [
+            Color { r: 0, g: 0, b: 255 },
+            Color { r: 0, g: 255, b: 0 },
+            Color { r: 255, g: 0, b: 0 },
+            Color {
+                r: 255,
+                g: 255,
+                b: 0,
+            },
+            Color {
+                r: 255,
+                g: 0,
+                b: 255,
+            },
+            Color {
+                r: 0,
+                g: 255,
+                b: 255,
+            },
+        ];
         (0..channel_count)
             .map(|i| {
-                channel(
+                omero_channel(
                     fluorescence_colors[i % fluorescence_colors.len()],
                     &format!("Channel {}", i + 1),
-                    0,
                 )
             })
             .collect()
     } else {
-        vec![
-            channel("FF0000", "R", 0),
-            channel("00FF00", "G", 0),
-            channel("0000FF", "B", 0),
-        ]
+        rgb_omero_channels()
     };
-    let omero = json!({
-        "id": 1,
-        "name": output.file_name().unwrap_or_default().to_string_lossy(),
-        "version": "0.4",
-        "channels": channels,
-        "rdefs": {"defaultT": 0, "defaultZ": 0, "model": "color"}
-    });
 
     let associated_attrs: Vec<_> = associated_images
         .iter()
@@ -545,21 +596,52 @@ where
         })
         .collect();
 
-    let mut multiscales_json = json!({
-        "multiscales": [{
-            "version": "0.4",
-            "name": output.file_stem().unwrap_or_default().to_string_lossy(),
-            "axes": axes,
-            "datasets": datasets,
-        }],
-        "omero": omero,
-    });
-    if !associated_attrs.is_empty() {
-        multiscales_json["associated_images"] = json!(associated_attrs);
-    }
-    let serde_json::Value::Object(attrs) = multiscales_json else {
+    let ome_attrs = OmeNgffGroupAttributes {
+        multiscales: Some(vec![MultiscaleImage {
+            version: Default::default(),
+            name: Some(
+                output
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            axes,
+            datasets,
+            coordinate_transformations: None,
+            r#type: None,
+            metadata: None,
+        }]),
+        omero: Some(Omero {
+            channels,
+            other: serde_json::Map::from_iter([
+                ("id".into(), json!(1)),
+                (
+                    "name".into(),
+                    json!(
+                        output
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .as_ref()
+                    ),
+                ),
+                ("version".into(), json!("0.4")),
+                (
+                    "rdefs".into(),
+                    json!({"defaultT": 0, "defaultZ": 0, "model": "color"}),
+                ),
+            ]),
+        }),
+        ..Default::default()
+    };
+    let serde_json::Value::Object(mut attrs) = serde_json::to_value(ome_attrs).map_err(zarr_err)?
+    else {
         unreachable!()
     };
+    if !associated_attrs.is_empty() {
+        attrs.insert("associated_images".into(), json!(associated_attrs));
+    }
 
     let compressor: MetadataV2 = serde_json::from_value(json!({
         "id": "blosc",

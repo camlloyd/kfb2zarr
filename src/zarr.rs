@@ -563,8 +563,8 @@ where
 
     let compressor: MetadataV2 = serde_json::from_value(json!({
         "id": "blosc",
-        "cname": "lz4",
-        "clevel": 5,
+        "cname": "zstd",
+        "clevel": 1,
         "shuffle": 1,
         "blocksize": 0
     }))

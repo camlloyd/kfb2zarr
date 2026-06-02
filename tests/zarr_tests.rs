@@ -378,12 +378,12 @@ fn array_dtype_is_uint8() {
 }
 
 #[test]
-fn array_uses_blosc_lz4_compressor() {
+fn array_uses_blosc_zstd_compressor() {
     let (_f, _dir, out) = single_tile();
     let z = read_json(&out.join("0/.zarray"));
     assert_eq!(z["compressor"]["id"], "blosc");
-    assert_eq!(z["compressor"]["cname"], "lz4");
-    assert_eq!(z["compressor"]["clevel"], 5);
+    assert_eq!(z["compressor"]["cname"], "zstd");
+    assert_eq!(z["compressor"]["clevel"], 1);
     assert_eq!(z["compressor"]["shuffle"], 1);
     assert_eq!(z["compressor"]["blocksize"], 0);
 }

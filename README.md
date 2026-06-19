@@ -1,6 +1,6 @@
 # kfb2zarr
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20101669.svg)](https://doi.org/10.5281/zenodo.20101669)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20101668.svg)](https://doi.org/10.5281/zenodo.20101668)
 
 Convert [KFBio](https://www.kfbio.cn) whole slide images (`.kfb`, `.kfbf`) to [OME-Zarr](https://ngff.openmicroscopy.org/).
 

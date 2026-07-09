@@ -197,6 +197,7 @@ fn copy_luma_plane(
 fn associated_image_name(kind: AssociatedImageKind) -> &'static str {
     match kind {
         AssociatedImageKind::Label => "label",
+        AssociatedImageKind::Macro => "macro",
         AssociatedImageKind::Thumbnail => "thumbnail",
     }
 }

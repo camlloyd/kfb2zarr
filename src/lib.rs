@@ -4,8 +4,8 @@
 //!
 //! - [`KfbReader`] — opens a KFBio file and exposes its header, tile index, and
 //!   associated images.
-//! - [`convert_to_zarr`] — decodes all JPEG tiles in parallel and writes a
-//!   multi-resolution OME-Zarr v0.4 store.
+//! - [`convert_to_zarr`] — decodes JPEG tiles on demand, level by level in
+//!   parallel, and writes a multi-resolution OME-Zarr v0.4 store.
 //!
 //! Pure Rust, no C dependencies. JPEG decoding via [`zune_jpeg`](https://docs.rs/zune-jpeg).
 //! Physical coordinate transforms come from the MPP value in the file header.

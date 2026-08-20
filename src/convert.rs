@@ -8,7 +8,7 @@ use crate::types::{AssociatedImageKind, DecodedAssociatedImage, TileInfo};
 /// Read a `.kfb` file and write an OME-Zarr v0.4 hierarchy to `output`.
 ///
 /// Tiles are decoded on demand as each resolution level is written. Each level becomes one
-/// Zarr array with Blosc/LZ4-compressed chunks. Scale transforms use the MPP value from the file
+/// Zarr array with Blosc/Zstd-compressed chunks. Scale transforms use the MPP value from the file
 /// header.
 ///
 /// # Examples

@@ -1,6 +1,6 @@
-use zune_core::colorspace::ColorSpace;
-use zune_core::options::DecoderOptions;
 use zune_jpeg::JpegDecoder;
+use zune_jpeg::zune_core::colorspace::ColorSpace;
+use zune_jpeg::zune_core::options::DecoderOptions;
 
 use crate::error::KfbError;
 

@@ -602,7 +602,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "zarrs",
- "zune-core",
  "zune-jpeg",
 ]
 

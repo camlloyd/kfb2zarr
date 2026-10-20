@@ -49,6 +49,7 @@ fn reader_parses_tile_position_dimensions_and_zoom_level() {
     let offset_from_file = (header.len() as i64) - section_start;
     // y_native=512, tile_h=256, tile_w=256, magnification=20.0 (full res)
     let tile_info = common::make_tile_info_section(
+        0,
         512,
         256,
         256,
@@ -84,6 +85,7 @@ fn reader_partial_tile_dimensions_are_not_swapped() {
     let section_start = (header.len() + fake_jpeg.len()) as i64;
     let offset_from_file = (header.len() as i64) - section_start;
     let tile_info = common::make_tile_info_section(
+        0,
         25600,
         132,
         55,
@@ -209,8 +211,15 @@ fn reader_ignores_marker_bytes_inside_tile_jpeg() {
 
     let section_start = (header.len() + fake_jpeg.len()) as i64;
     let offset_from_file = (header.len() as i64) - section_start;
-    let tile_info =
-        common::make_tile_info_section(0, 256, 256, 20.0, fake_jpeg.len() as i32, offset_from_file);
+    let tile_info = common::make_tile_info_section(
+        0,
+        0,
+        256,
+        256,
+        20.0,
+        fake_jpeg.len() as i32,
+        offset_from_file,
+    );
     f.write_all(&tile_info).unwrap();
     f.flush().unwrap();
 
@@ -313,14 +322,14 @@ fn reader_parses_kfbf_channel_tiles_from_indirection_tables() {
 }
 
 #[test]
-fn reader_derives_kfbf_tile_columns_from_wrapped_y_coordinates() {
+fn reader_parses_kfbf_tile_positions_from_records() {
     let mut f = NamedTempFile::new().unwrap();
     let mut data = vec![0u8; 192];
     data[0..4].copy_from_slice(&common::HEADER_START);
     data[4..8].copy_from_slice(b"KFBF");
     {
         let mut cur = std::io::Cursor::new(&mut data[0x10..]);
-        cur.write_i32::<LittleEndian>(3).unwrap();
+        cur.write_i32::<LittleEndian>(4).unwrap();
         cur.write_i32::<LittleEndian>(1024).unwrap();
         cur.write_i32::<LittleEndian>(1024).unwrap();
         cur.write_i32::<LittleEndian>(40).unwrap();
@@ -339,15 +348,17 @@ fn reader_derives_kfbf_tile_columns_from_wrapped_y_coordinates() {
         cur.write_u32::<BigEndian>(1).unwrap();
     }
 
-    let positions = [0, 512, 0];
+    // The old reader started a new column only when y went down. Here (1024, 0)
+    // follows (512, 0) at the same y, so it would have landed on x=512.
+    let positions = [(0, 0), (0, 512), (512, 0), (1024, 0)];
     let offset_table_start = 192 + 64 * positions.len();
     let jpeg_start = offset_table_start + 16 * positions.len();
-    for (i, y) in positions.iter().enumerate() {
+    for (i, (x, y)) in positions.iter().enumerate() {
         let offset_table = (offset_table_start + i * 16) as u64;
         let length_table = offset_table + 8;
         let mut tile = Vec::new();
         tile.extend_from_slice(&common::TILE_INFO_START);
-        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(*x).unwrap();
         tile.write_i32::<LittleEndian>(*y).unwrap();
         tile.write_i32::<LittleEndian>(512).unwrap();
         tile.write_i32::<LittleEndian>(512).unwrap();
@@ -380,7 +391,7 @@ fn reader_derives_kfbf_tile_columns_from_wrapped_y_coordinates() {
         .iter()
         .map(|tile| (tile.pos_x(), tile.pos_y()))
         .collect();
-    assert_eq!(coords, vec![(0, 0), (0, 512), (512, 0)]);
+    assert_eq!(coords, vec![(0, 0), (0, 512), (512, 0), (1024, 0)]);
 }
 
 #[test]
@@ -575,7 +586,7 @@ fn read_tile_bytes_out_of_bounds_returns_invalid_offset() {
     f.write_all(&header).unwrap();
     // Tile info: offset_from_file points far past end of file
     let offset_from_file: i64 = 9000; // section_start + 9000 >> file size
-    let tile_info = common::make_tile_info_section(0, 256, 256, 20.0, 1024, offset_from_file);
+    let tile_info = common::make_tile_info_section(0, 0, 256, 256, 20.0, 1024, offset_from_file);
     f.write_all(&tile_info).unwrap();
     f.flush().unwrap();
 
@@ -592,11 +603,11 @@ fn read_tile_bytes_out_of_bounds_returns_invalid_offset() {
 // x positions (0 and 256) based on their order in the file — x is not stored
 // in the tile section so it is derived from section rank.
 #[test]
-fn tiles_in_same_row_get_sequential_x_positions() {
+fn reader_parses_kfb_tile_x_positions_from_records() {
     let mut f = NamedTempFile::new().unwrap();
     let header = common::make_header_section(common::HeaderSection {
         tile_count: 2,
-        base_width: 512,
+        base_width: 1024,
         ..Default::default()
     });
     f.write_all(&header).unwrap();
@@ -604,26 +615,29 @@ fn tiles_in_same_row_get_sequential_x_positions() {
     f.write_all(&fake_jpeg).unwrap();
     f.write_all(&fake_jpeg).unwrap();
 
-    // Both tiles: same y_native (0) and magnification (20.0) → same group.
+    // Both tiles are 512 px wide and on row 0, and the second record says x=512.
+    // A fixed 256 px stride would put it at x=256.
     let data_area_start = (header.len() + fake_jpeg.len() * 2) as i64;
     let jpeg0_abs = header.len() as i64;
     let jpeg1_abs = jpeg0_abs + fake_jpeg.len() as i64;
     let section0_abs = data_area_start;
     let section1_abs =
-        data_area_start + common::make_tile_info_section(0, 256, 256, 20.0, 1, 0).len() as i64;
+        data_area_start + common::make_tile_info_section(0, 0, 512, 512, 20.0, 1, 0).len() as i64;
 
     let tile0 = common::make_tile_info_section(
         0,
-        256,
-        256,
+        0,
+        512,
+        512,
         20.0,
         fake_jpeg.len() as i32,
         jpeg0_abs - section0_abs,
     );
     let tile1 = common::make_tile_info_section(
+        512,
         0,
-        256,
-        256,
+        512,
+        512,
         20.0,
         fake_jpeg.len() as i32,
         jpeg1_abs - section1_abs,
@@ -635,7 +649,7 @@ fn tiles_in_same_row_get_sequential_x_positions() {
     let reader = KfbReader::open(f.path()).unwrap();
     assert_eq!(reader.tiles().len(), 2);
     assert_eq!(reader.tiles()[0].pos_x(), 0, "first tile in row → x=0");
-    assert_eq!(reader.tiles()[1].pos_x(), 256, "second tile in row → x=256");
+    assert_eq!(reader.tiles()[1].pos_x(), 512, "second tile in row → x=512");
     assert_eq!(reader.tiles()[0].pos_y(), 0);
     assert_eq!(reader.tiles()[1].pos_y(), 0);
 }
@@ -657,11 +671,12 @@ fn magnification_maps_to_zoom_level() {
     }
 
     let data_area_start = (header.len() + fake_jpeg.len() * 3) as i64;
-    let section_len = common::make_tile_info_section(0, 256, 256, 20.0, 1, 0).len() as i64;
+    let section_len = common::make_tile_info_section(0, 0, 256, 256, 20.0, 1, 0).len() as i64;
     for (idx, &mag) in [20.0f32, 10.0, 5.0].iter().enumerate() {
         let jpeg_abs = header.len() as i64 + idx as i64 * fake_jpeg.len() as i64;
         let sec_abs = data_area_start + idx as i64 * section_len;
         let section = common::make_tile_info_section(
+            0,
             0,
             256,
             256,
@@ -697,11 +712,12 @@ fn zoom_level_respects_scanner_max_magnification() {
     }
 
     let data_area_start = (header.len() + fake_jpeg.len() * 2) as i64;
-    let section_len = common::make_tile_info_section(0, 256, 256, 40.0, 1, 0).len() as i64;
+    let section_len = common::make_tile_info_section(0, 0, 256, 256, 40.0, 1, 0).len() as i64;
     for (idx, &mag) in [40.0f32, 20.0].iter().enumerate() {
         let jpeg_abs = header.len() as i64 + idx as i64 * fake_jpeg.len() as i64;
         let sec_abs = data_area_start + idx as i64 * section_len;
         let section = common::make_tile_info_section(
+            0,
             0,
             256,
             256,
@@ -895,7 +911,7 @@ fn negative_data_length_returns_invalid_offset() {
     // written at byte 32 of the section, bypassing make_tile_info_section.
     let section_start = header.len() as i64;
     // Build via helper with data_length=1, then patch the length field to -1.
-    let mut raw = common::make_tile_info_section(0, 256, 256, 20.0, 1, -section_start);
+    let mut raw = common::make_tile_info_section(0, 0, 256, 256, 20.0, 1, -section_start);
     // data_length lives at byte 32 of the section.
     raw[32..36].copy_from_slice(&(-1i32).to_le_bytes());
     f.write_all(&raw).unwrap();

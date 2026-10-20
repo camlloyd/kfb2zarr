@@ -69,9 +69,6 @@ impl KfbReader {
         let mut tiles = Vec::with_capacity(header.tile_count() as usize);
         let mut i = 0usize;
         let mut next_jpeg_offset: Option<u64> = None;
-        const TILE_PX: i32 = 256;
-        let mut rank_map: std::collections::HashMap<(i32, i32), i32> =
-            std::collections::HashMap::new();
 
         while i + 4 <= data.len() {
             let marker = &data[i..i + 4];
@@ -81,10 +78,6 @@ impl KfbReader {
                     tile.data_offset = jpeg_offset;
                 }
                 next_jpeg_offset = Some(tile.data_offset + tile.data_length as u64);
-                let key = (tile.pos_y, tile.zoom_level);
-                let rank = *rank_map.get(&key).unwrap_or(&0);
-                rank_map.insert(key, rank + 1);
-                tile.pos_x = rank * TILE_PX;
                 tiles.push(tile);
                 i += 4;
             } else {
@@ -145,8 +138,6 @@ impl KfbReader {
         let max_mag = header.scan_scale() as f32;
         let channel_count = header.channel_count();
         let mut tiles = Vec::with_capacity(header.tile_count() as usize * channel_count);
-        let mut col_state: std::collections::HashMap<i32, (Option<i32>, i32)> =
-            std::collections::HashMap::new();
         let tile_index_offset = read_u64_le(data, 0x44)? as usize;
 
         for index in 0..header.tile_count().max(0) as usize {
@@ -163,15 +154,6 @@ impl KfbReader {
             }
 
             let spatial = parse_kfbf_tile_info(&data[i..end], i as u64, max_mag)?;
-            let state = col_state.entry(spatial.zoom_level).or_insert((None, 0));
-            if let Some(prev) = state.0 {
-                if spatial.pos_y < prev {
-                    state.1 += header.tile_size();
-                }
-            }
-            state.0 = Some(spatial.pos_y);
-            let pos_x = state.1;
-            let pos_y = spatial.pos_y;
 
             for channel_index in 0..channel_count {
                 let offset_table_pos = spatial.offset_table + (channel_index as u64 * 8);
@@ -184,8 +166,8 @@ impl KfbReader {
                         file_len: data.len() as u64,
                     })?;
                 tiles.push(TileInfo::from_fields(TileInfoFields {
-                    pos_x,
-                    pos_y,
+                    pos_x: spatial.pos_x,
+                    pos_y: spatial.pos_y,
                     width: spatial.width,
                     height: spatial.height,
                     channel_index,

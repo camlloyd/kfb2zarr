@@ -53,6 +53,7 @@ fn synth_brightfield_kfb_with_label(
     let offset_from_tile_info = jpeg_offset - tile_info_pos;
     let tile_info = common::make_tile_info_section(
         0,
+        0,
         1,
         1,
         20.0,
@@ -86,6 +87,7 @@ fn synth_brightfield_two_level_kfb() -> NamedTempFile {
     let first_tile_info_pos = buf.len() as i64;
     let tile_info_1 = common::make_tile_info_section(
         0,
+        0,
         1,
         1,
         20.0,
@@ -94,6 +96,7 @@ fn synth_brightfield_two_level_kfb() -> NamedTempFile {
     );
     buf.extend_from_slice(&tile_info_1);
     let tile_info_2 = common::make_tile_info_section(
+        0,
         0,
         1,
         1,
@@ -108,9 +111,9 @@ fn synth_brightfield_two_level_kfb() -> NamedTempFile {
     f
 }
 
-/// Two red tiles side by side on one row of a 512x256 base level. Tile x
-/// positions come from the parser's 256-px stride, so the second tile starts at
-/// x=256 and both land in a single 512x256 chunk at different x offsets.
+/// Two red tiles side by side on one row of a 512x256 base level. The second
+/// tile's record says x=256, so both land in a single 512x256 chunk at different
+/// x offsets.
 fn synth_brightfield_two_tiles_one_row_kfb() -> NamedTempFile {
     let mut f = NamedTempFile::new().unwrap();
     let mut buf = common::make_header_section(common::HeaderSection {
@@ -129,8 +132,9 @@ fn synth_brightfield_two_tiles_one_row_kfb() -> NamedTempFile {
     buf.extend_from_slice(common::RED_1X1_JPEG);
 
     let tile_info_pos = buf.len() as i64;
-    for jpeg_offset in [jpeg_offset_0, jpeg_offset_1] {
+    for (x, jpeg_offset) in [(0, jpeg_offset_0), (256, jpeg_offset_1)] {
         buf.extend_from_slice(&common::make_tile_info_section(
+            x,
             0,
             256,
             256,
@@ -145,10 +149,8 @@ fn synth_brightfield_two_tiles_one_row_kfb() -> NamedTempFile {
     f
 }
 
-/// Single-channel KFBF with two 256x256 tiles. The second tile's y is lower than
-/// the first's, so the parser starts a new column for it, and the tiles land at
-/// (x=0, y=128) and (x=256, y=0). The pair is asymmetric, so swapping x and y
-/// offsets is observable.
+/// Single-channel KFBF with two 256x256 tiles at (x=0, y=128) and (x=256, y=0).
+/// The pair is asymmetric, so swapping x and y offsets is observable.
 fn synth_fluorescence_two_tiles_kfbf() -> NamedTempFile {
     let mut data = vec![0u8; 0xb4];
     data[0..4].copy_from_slice(&common::HEADER_START);
@@ -184,10 +186,10 @@ fn synth_fluorescence_two_tiles_kfbf() -> NamedTempFile {
     let length_table_pos = offset_table_pos + 2 * 8;
     let jpeg_payloads_pos = length_table_pos + 2 * 8;
 
-    for (i, pos_y) in [128, 0].iter().enumerate() {
+    for (i, (pos_x, pos_y)) in [(0, 128), (256, 0)].iter().enumerate() {
         let mut tile = Vec::new();
         tile.extend_from_slice(&common::TILE_INFO_START);
-        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(*pos_x).unwrap();
         tile.write_i32::<LittleEndian>(*pos_y).unwrap();
         tile.write_i32::<LittleEndian>(256).unwrap();
         tile.write_i32::<LittleEndian>(256).unwrap();
@@ -241,6 +243,7 @@ fn synth_brightfield_2x2_tile_kfb() -> NamedTempFile {
     let tile_info_pos = buf.len() as i64;
     buf.extend_from_slice(&common::make_tile_info_section(
         0,
+        0,
         2,
         2,
         20.0,
@@ -271,6 +274,7 @@ fn synth_brightfield_odd_extent_two_level_kfb() -> NamedTempFile {
 
     let tile_info_pos_0 = buf.len() as i64;
     let tile_info_0 = common::make_tile_info_section(
+        0,
         4,
         1,
         1,
@@ -281,6 +285,7 @@ fn synth_brightfield_odd_extent_two_level_kfb() -> NamedTempFile {
     buf.extend_from_slice(&tile_info_0);
 
     let tile_info_1 = common::make_tile_info_section(
+        0,
         0,
         2,
         2,
@@ -705,8 +710,6 @@ fn slide_label_is_written_as_associated_image() {
 #[test]
 fn shape_uses_tile_bounds_when_header_is_short() {
     // Header claims 3×3; tile is placed at y=4 size 1×1 → y bounds (5) exceed header.
-    // (pos_x can't be patched per-tile from the test fixture: the reader assigns
-    // pos_x = rank × 256 from section ordering, so we exercise the y-axis case.)
     let mut f = NamedTempFile::new().unwrap();
     let mut buf = common::make_header_section(common::HeaderSection {
         tile_count: 1,
@@ -721,6 +724,7 @@ fn shape_uses_tile_bounds_when_header_is_short() {
     buf.extend_from_slice(common::RED_1X1_JPEG);
     let tile_info_pos = buf.len() as i64;
     let tile_info = common::make_tile_info_section(
+        0,
         4, // y_native — exceeds header height 3
         1,
         1,

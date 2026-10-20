@@ -45,7 +45,7 @@ pub(crate) fn parse_header(data: &[u8]) -> Result<KfbHeader, KfbError> {
         KfbFormat::Brightfield
     };
 
-    let mut cur = Cursor::new(&data[16..]);
+    let mut cur = Cursor::new(data.get(16..).unwrap_or_default());
     let tile_count = cur.read_i32::<LittleEndian>()?;
     let base_height = cur.read_i32::<LittleEndian>()?;
     let base_width = cur.read_i32::<LittleEndian>()?;

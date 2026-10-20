@@ -616,6 +616,33 @@ fn open_wrong_magic_returns_invalid_magic() {
 }
 
 #[test]
+fn open_negative_tile_count_returns_no_tiles() {
+    let mut f = NamedTempFile::new().unwrap();
+    let header = common::make_header_section(common::HeaderSection {
+        tile_count: -1,
+        ..Default::default()
+    });
+    f.write_all(&header).unwrap();
+    f.flush().unwrap();
+
+    let reader = KfbReader::open(f.path()).unwrap();
+    assert!(reader.tiles().is_empty());
+}
+
+#[test]
+fn open_truncated_header_returns_io_error() {
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(&common::HEADER_START).unwrap(); // magic only, no header fields
+    f.flush().unwrap();
+
+    let err = KfbReader::open(f.path()).unwrap_err();
+    assert!(
+        matches!(err, KfbError::Io(_)),
+        "expected Io error, got {err:?}"
+    );
+}
+
+#[test]
 fn read_tile_bytes_out_of_bounds_returns_invalid_offset() {
     let mut f = NamedTempFile::new().unwrap();
     // Header pointing to a tile at offset 9999 — beyond end of file

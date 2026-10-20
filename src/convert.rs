@@ -2,8 +2,9 @@ use std::path::Path;
 
 use crate::decode::decode_jpeg;
 use crate::error::KfbError;
+use crate::pyramid::Pyramid;
 use crate::reader::KfbReader;
-use crate::types::{AssociatedImageKind, DecodedAssociatedImage, TileInfo};
+use crate::types::{AssociatedImageKind, DecodedAssociatedImage};
 
 /// Read a `.kfb` file and write an OME-Zarr v0.4 hierarchy to `output`.
 ///
@@ -45,15 +46,7 @@ pub fn convert_to_zarr_with_chunk_size(
 ) -> Result<(), KfbError> {
     let reader = KfbReader::open(input)?;
     let header = reader.header().clone();
-    let zoom_level_count = header.zoom_levels().max(1) as usize;
-
-    let mut by_level: Vec<Vec<TileInfo>> = vec![Vec::new(); zoom_level_count];
-    for tile in reader.tiles() {
-        let level = tile.zoom_level() as usize;
-        if level < zoom_level_count && tile.data_length > 0 {
-            by_level[level].push(tile.clone());
-        }
-    }
+    let pyramid = Pyramid::new(&header, reader.tiles());
 
     let decoded_associated = reader
         .associated_images()
@@ -75,7 +68,7 @@ pub fn convert_to_zarr_with_chunk_size(
         output,
         &reader,
         &header,
-        &by_level,
+        &pyramid,
         &decoded_associated,
         chunk_size,
     )

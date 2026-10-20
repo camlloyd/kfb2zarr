@@ -904,6 +904,17 @@ fn chunk_size_must_be_a_multiple_of_the_tile_size() {
 }
 
 #[test]
+fn chunk_size_defaults_to_the_tile_size_in_the_records() {
+    // The records say 256 px, but the fixture's JPEGs decode to 1x1.
+    let input = synth_brightfield_two_tiles_one_row_kfb();
+    let (_dir, out) = convert(input.path());
+    assert_eq!(
+        read_json(&out.join("0/.zarray"))["chunks"],
+        json!([3, 256, 256])
+    );
+}
+
+#[test]
 fn chunk_size_is_capped_to_each_level_dimensions() {
     let input = synth_brightfield_two_level_kfb();
     let dir = TempDir::new().unwrap();

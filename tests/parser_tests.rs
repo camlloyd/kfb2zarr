@@ -231,8 +231,8 @@ fn reader_parses_kfbf_channel_tiles_from_indirection_tables() {
     {
         let mut cur = std::io::Cursor::new(&mut data[0x10..]);
         cur.write_i32::<LittleEndian>(1).unwrap(); // tile records
-        cur.write_i32::<LittleEndian>(1024).unwrap(); // width slot for KFBF
-        cur.write_i32::<LittleEndian>(512).unwrap(); // height slot for KFBF
+        cur.write_i32::<LittleEndian>(512).unwrap(); // height
+        cur.write_i32::<LittleEndian>(1024).unwrap(); // width
         cur.write_i32::<LittleEndian>(40).unwrap();
         cur.write_all(b"JPEG").unwrap();
         cur.write_i32::<LittleEndian>(0).unwrap();
@@ -266,8 +266,8 @@ fn reader_parses_kfbf_channel_tiles_from_indirection_tables() {
     tile.extend_from_slice(&common::TILE_INFO_START);
     tile.write_i32::<LittleEndian>(0).unwrap();
     tile.write_i32::<LittleEndian>(0).unwrap(); // x
-    tile.write_i32::<LittleEndian>(512).unwrap(); // height
     tile.write_i32::<LittleEndian>(512).unwrap(); // width
+    tile.write_i32::<LittleEndian>(256).unwrap(); // height
     tile.write_f32::<LittleEndian>(40.0).unwrap();
     tile.write_i32::<LittleEndian>(0).unwrap();
     tile.write_i32::<LittleEndian>(0).unwrap();
@@ -307,7 +307,7 @@ fn reader_parses_kfbf_channel_tiles_from_indirection_tables() {
         assert_eq!(tile.pos_x(), 0);
         assert_eq!(tile.pos_y(), 0);
         assert_eq!(tile.width(), 512);
-        assert_eq!(tile.height(), 512);
+        assert_eq!(tile.height(), 256);
         assert_eq!(reader.read_tile_bytes(tile).unwrap()[2], channel as u8);
     }
 }

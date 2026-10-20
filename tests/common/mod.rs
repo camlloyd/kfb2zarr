@@ -140,6 +140,11 @@ pub fn make_header_section(section: HeaderSection) -> Vec<u8> {
     buf
 }
 
+/// Point the header's tile index (offset 0x44) at the first tile section.
+pub fn set_tile_index(buf: &mut [u8], first_section: usize) {
+    buf[0x44..0x4c].copy_from_slice(&(first_section as u64).to_le_bytes());
+}
+
 pub const THUMBNAIL_START: [u8; 4] = [0xF1, 0x02, 0xEE, 0xEE];
 pub const LABEL_START: [u8; 4] = [0xF1, 0x03, 0xEE, 0xEE];
 

@@ -3,7 +3,7 @@ use std::fs::File;
 use std::path::Path;
 
 use crate::error::KfbError;
-use crate::parser::{parse_associated_image, parse_header, parse_kfbf_tile_info, parse_tile_info};
+use crate::parser::{parse_associated_image, parse_header, parse_tile_record};
 use crate::types::{AssociatedImage, AssociatedImageKind, KfbHeader, TileInfo, TileInfoFields};
 
 const TILE_INFO_START: [u8; 4] = [0xF1, 0x04, 0xEE, 0xEE];
@@ -59,32 +59,7 @@ impl KfbReader {
 
     fn scan(data: &[u8]) -> Result<(KfbHeader, Vec<TileInfo>, Vec<AssociatedImage>), KfbError> {
         let header = parse_header(data)?;
-        if header.is_fluorescence() {
-            let tiles = Self::scan_kfbf_tiles(data, &header)?;
-            let associated = Self::scan_associated_images(data, &tiles)?;
-            return Ok((header, tiles, associated));
-        }
-
-        let max_mag = header.scan_scale() as f32;
-        let mut tiles = Vec::with_capacity(header.tile_count() as usize);
-        let mut i = 0usize;
-        let mut next_jpeg_offset: Option<u64> = None;
-
-        while i + 4 <= data.len() {
-            let marker = &data[i..i + 4];
-            if marker == TILE_INFO_START {
-                let mut tile = parse_tile_info(&data[i..], i as u64, max_mag)?;
-                if let Some(jpeg_offset) = next_jpeg_offset {
-                    tile.data_offset = jpeg_offset;
-                }
-                next_jpeg_offset = Some(tile.data_offset + tile.data_length as u64);
-                tiles.push(tile);
-                i += 4;
-            } else {
-                i += 1;
-            }
-        }
-
+        let tiles = Self::scan_tiles(data, &header)?;
         let associated = Self::scan_associated_images(data, &tiles)?;
         Ok((header, tiles, associated))
     }
@@ -134,7 +109,7 @@ impl KfbReader {
         Ok(associated)
     }
 
-    fn scan_kfbf_tiles(data: &[u8], header: &KfbHeader) -> Result<Vec<TileInfo>, KfbError> {
+    fn scan_tiles(data: &[u8], header: &KfbHeader) -> Result<Vec<TileInfo>, KfbError> {
         let max_mag = header.scan_scale() as f32;
         let channel_count = header.channel_count();
         let mut tiles = Vec::with_capacity(header.tile_count() as usize * channel_count);
@@ -153,11 +128,24 @@ impl KfbReader {
                 });
             }
 
-            let spatial = parse_kfbf_tile_info(&data[i..end], i as u64, max_mag)?;
+            let record = parse_tile_record(&data[i..end], i as u64, max_mag)?;
+            if !header.is_fluorescence() {
+                tiles.push(TileInfo::from_fields(TileInfoFields {
+                    pos_x: record.pos_x,
+                    pos_y: record.pos_y,
+                    width: record.width,
+                    height: record.height,
+                    channel_index: 0,
+                    zoom_level: record.zoom_level,
+                    data_offset: (tile_index_offset as i64 + record.data_offset) as u64,
+                    data_length: record.data_length,
+                }));
+                continue;
+            }
 
             for channel_index in 0..channel_count {
-                let offset_table_pos = spatial.offset_table + (channel_index as u64 * 8);
-                let length_table_pos = spatial.length_table + (channel_index as u64 * 8);
+                let offset_table_pos = record.data_offset as u64 + (channel_index as u64 * 8);
+                let length_table_pos = record.length_table + (channel_index as u64 * 8);
                 let data_offset = read_u64_le(data, offset_table_pos)?;
                 let data_length = read_u64_le(data, length_table_pos)?;
                 let data_length =
@@ -166,12 +154,12 @@ impl KfbReader {
                         file_len: data.len() as u64,
                     })?;
                 tiles.push(TileInfo::from_fields(TileInfoFields {
-                    pos_x: spatial.pos_x,
-                    pos_y: spatial.pos_y,
-                    width: spatial.width,
-                    height: spatial.height,
+                    pos_x: record.pos_x,
+                    pos_y: record.pos_y,
+                    width: record.width,
+                    height: record.height,
                     channel_index,
-                    zoom_level: spatial.zoom_level,
+                    zoom_level: record.zoom_level,
                     data_offset,
                     data_length,
                 }));

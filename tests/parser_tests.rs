@@ -11,7 +11,7 @@ use tempfile::NamedTempFile;
 fn reader_parses_kfb_header_dimensions_and_metadata() {
     let mut f = NamedTempFile::new().unwrap();
     let header = common::make_header_section(common::HeaderSection {
-        tile_count: 100,
+        tile_count: 0,
         base_width: 10000,
         base_height: 8000,
         scan_scale: 40,
@@ -24,7 +24,7 @@ fn reader_parses_kfb_header_dimensions_and_metadata() {
     f.flush().unwrap();
 
     let reader = KfbReader::open(f.path()).unwrap();
-    assert_eq!(reader.header().tile_count(), 100);
+    assert_eq!(reader.header().tile_count(), 0);
     assert_eq!(reader.header().base_width(), 10000);
     assert_eq!(reader.header().base_height(), 8000);
     assert_eq!(reader.header().scan_scale(), 40);
@@ -37,13 +37,15 @@ fn reader_parses_kfb_header_dimensions_and_metadata() {
 #[test]
 fn reader_parses_tile_position_dimensions_and_zoom_level() {
     let mut f = NamedTempFile::new().unwrap();
-    let header = common::make_header_section(common::HeaderSection {
+    let mut header = common::make_header_section(common::HeaderSection {
         spend_time: 60,
         scan_time: 1700000000,
         ..Default::default()
     });
-    f.write_all(&header).unwrap();
     let fake_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let index = header.len() + fake_jpeg.len();
+    common::set_tile_index(&mut header, index);
+    f.write_all(&header).unwrap();
     f.write_all(&fake_jpeg).unwrap();
     let section_start = (header.len() + fake_jpeg.len()) as i64;
     let offset_from_file = (header.len() as i64) - section_start;
@@ -63,7 +65,7 @@ fn reader_parses_tile_position_dimensions_and_zoom_level() {
     let reader = KfbReader::open(f.path()).unwrap();
     assert_eq!(reader.tiles().len(), 1);
     let tile = &reader.tiles()[0];
-    assert_eq!(tile.pos_x(), 0); // rank 0 within (y=512, level=0) group → x=0
+    assert_eq!(tile.pos_x(), 0);
     assert_eq!(tile.pos_y(), 512); // y_native
     assert_eq!(tile.width(), 256);
     assert_eq!(tile.height(), 256);
@@ -73,14 +75,16 @@ fn reader_parses_tile_position_dimensions_and_zoom_level() {
 #[test]
 fn reader_partial_tile_dimensions_are_not_swapped() {
     let mut f = NamedTempFile::new().unwrap();
-    let header = common::make_header_section(common::HeaderSection {
+    let mut header = common::make_header_section(common::HeaderSection {
         base_width: 37764,
         base_height: 25650,
         image_cap_res: 0.247488,
         ..Default::default()
     });
-    f.write_all(&header).unwrap();
     let fake_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let index = header.len() + fake_jpeg.len();
+    common::set_tile_index(&mut header, index);
+    f.write_all(&header).unwrap();
     f.write_all(&fake_jpeg).unwrap();
     let section_start = (header.len() + fake_jpeg.len()) as i64;
     let offset_from_file = (header.len() as i64) - section_start;
@@ -190,15 +194,48 @@ fn reader_extends_associated_image_length_to_jpeg_eoi() {
 }
 
 #[test]
+fn reader_parses_kfb_tile_data_offsets_from_records() {
+    // The JPEGs are stored in the opposite order to their records, so each tile's
+    // data must come from its own record, not from where the previous tile ended.
+    let mut buf = common::make_header_section(common::HeaderSection {
+        tile_count: 2,
+        ..Default::default()
+    });
+    let jpeg_a = buf.len() as i64;
+    buf.extend_from_slice(&[0xFF, 0xD8, 0xAA, 0xD9]);
+    let jpeg_b = buf.len() as i64;
+    buf.extend_from_slice(&[0xFF, 0xD8, 0xBB, 0xD9]);
+    let index = buf.len();
+    common::set_tile_index(&mut buf, index);
+    for (x, jpeg) in [(0, jpeg_b), (256, jpeg_a)] {
+        buf.extend_from_slice(&common::make_tile_info_section(
+            x,
+            0,
+            256,
+            256,
+            20.0,
+            4,
+            jpeg - index as i64,
+        ));
+    }
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(&buf).unwrap();
+    f.flush().unwrap();
+
+    let reader = KfbReader::open(f.path()).unwrap();
+    let tiles = reader.tiles();
+    assert_eq!(reader.read_tile_bytes(&tiles[0]).unwrap()[2], 0xBB);
+    assert_eq!(reader.read_tile_bytes(&tiles[1]).unwrap()[2], 0xAA);
+}
+
+#[test]
 fn reader_ignores_marker_bytes_inside_tile_jpeg() {
     let mut f = NamedTempFile::new().unwrap();
-    let header = common::make_header_section(common::HeaderSection {
+    let mut header = common::make_header_section(common::HeaderSection {
         spend_time: 60,
         scan_time: 1700000000,
         ..Default::default()
     });
-    f.write_all(&header).unwrap();
-
     let mut fake_jpeg = vec![0u8; 80];
     fake_jpeg[0..2].copy_from_slice(&[0xFF, 0xD8]);
     fake_jpeg[10..14].copy_from_slice(&common::THUMBNAIL_START);
@@ -207,6 +244,9 @@ fn reader_ignores_marker_bytes_inside_tile_jpeg() {
     fake_jpeg[34..38].copy_from_slice(&52i32.to_le_bytes());
     fake_jpeg[62..64].copy_from_slice(&[0xFF, 0xD8]);
     fake_jpeg[78..80].copy_from_slice(&[0xFF, 0xD9]);
+    let index = header.len() + fake_jpeg.len();
+    common::set_tile_index(&mut header, index);
+    f.write_all(&header).unwrap();
     f.write_all(&fake_jpeg).unwrap();
 
     let section_start = (header.len() + fake_jpeg.len()) as i64;
@@ -509,6 +549,7 @@ fn reader_parses_kfbf_label_associated_image() {
 fn open_with_tile_size(base_width: i32, base_height: i32, tile_size: i32) -> KfbReader {
     let mut f = NamedTempFile::new().unwrap();
     f.write_all(&common::make_header_section(common::HeaderSection {
+        tile_count: 0,
         base_width,
         base_height,
         tile_size,
@@ -578,11 +619,13 @@ fn open_wrong_magic_returns_invalid_magic() {
 fn read_tile_bytes_out_of_bounds_returns_invalid_offset() {
     let mut f = NamedTempFile::new().unwrap();
     // Header pointing to a tile at offset 9999 — beyond end of file
-    let header = common::make_header_section(common::HeaderSection {
+    let mut header = common::make_header_section(common::HeaderSection {
         spend_time: 60,
         scan_time: 1700000000,
         ..Default::default()
     });
+    let index = header.len();
+    common::set_tile_index(&mut header, index);
     f.write_all(&header).unwrap();
     // Tile info: offset_from_file points far past end of file
     let offset_from_file: i64 = 9000; // section_start + 9000 >> file size
@@ -599,30 +642,25 @@ fn read_tile_bytes_out_of_bounds_returns_invalid_offset() {
     );
 }
 
-// Two tiles in the same (y_native, zoom_level) group must receive sequential
-// x positions (0 and 256) based on their order in the file — x is not stored
-// in the tile section so it is derived from section rank.
 #[test]
 fn reader_parses_kfb_tile_x_positions_from_records() {
     let mut f = NamedTempFile::new().unwrap();
-    let header = common::make_header_section(common::HeaderSection {
+    let mut header = common::make_header_section(common::HeaderSection {
         tile_count: 2,
         base_width: 1024,
         ..Default::default()
     });
-    f.write_all(&header).unwrap();
     let fake_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let index = header.len() + fake_jpeg.len() * 2;
+    common::set_tile_index(&mut header, index);
+    f.write_all(&header).unwrap();
     f.write_all(&fake_jpeg).unwrap();
     f.write_all(&fake_jpeg).unwrap();
 
     // Both tiles are 512 px wide and on row 0, and the second record says x=512.
     // A fixed 256 px stride would put it at x=256.
-    let data_area_start = (header.len() + fake_jpeg.len() * 2) as i64;
     let jpeg0_abs = header.len() as i64;
     let jpeg1_abs = jpeg0_abs + fake_jpeg.len() as i64;
-    let section0_abs = data_area_start;
-    let section1_abs =
-        data_area_start + common::make_tile_info_section(0, 0, 512, 512, 20.0, 1, 0).len() as i64;
 
     let tile0 = common::make_tile_info_section(
         0,
@@ -631,7 +669,7 @@ fn reader_parses_kfb_tile_x_positions_from_records() {
         512,
         20.0,
         fake_jpeg.len() as i32,
-        jpeg0_abs - section0_abs,
+        jpeg0_abs - index as i64,
     );
     let tile1 = common::make_tile_info_section(
         512,
@@ -640,7 +678,7 @@ fn reader_parses_kfb_tile_x_positions_from_records() {
         512,
         20.0,
         fake_jpeg.len() as i32,
-        jpeg1_abs - section1_abs,
+        jpeg1_abs - index as i64,
     );
     f.write_all(&tile0).unwrap();
     f.write_all(&tile1).unwrap();
@@ -658,23 +696,22 @@ fn reader_parses_kfb_tile_x_positions_from_records() {
 #[test]
 fn magnification_maps_to_zoom_level() {
     let mut f = NamedTempFile::new().unwrap();
-    let header = common::make_header_section(common::HeaderSection {
+    let mut header = common::make_header_section(common::HeaderSection {
         tile_count: 3,
         base_width: 512,
         base_height: 512,
         ..Default::default()
     });
-    f.write_all(&header).unwrap();
     let fake_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let index = header.len() + fake_jpeg.len() * 3;
+    common::set_tile_index(&mut header, index);
+    f.write_all(&header).unwrap();
     for _ in 0..3 {
         f.write_all(&fake_jpeg).unwrap();
     }
 
-    let data_area_start = (header.len() + fake_jpeg.len() * 3) as i64;
-    let section_len = common::make_tile_info_section(0, 0, 256, 256, 20.0, 1, 0).len() as i64;
     for (idx, &mag) in [20.0f32, 10.0, 5.0].iter().enumerate() {
         let jpeg_abs = header.len() as i64 + idx as i64 * fake_jpeg.len() as i64;
-        let sec_abs = data_area_start + idx as i64 * section_len;
         let section = common::make_tile_info_section(
             0,
             0,
@@ -682,7 +719,7 @@ fn magnification_maps_to_zoom_level() {
             256,
             mag,
             fake_jpeg.len() as i32,
-            jpeg_abs - sec_abs,
+            jpeg_abs - index as i64,
         );
         f.write_all(&section).unwrap();
     }
@@ -697,7 +734,7 @@ fn magnification_maps_to_zoom_level() {
 #[test]
 fn zoom_level_respects_scanner_max_magnification() {
     let mut f = NamedTempFile::new().unwrap();
-    let header = common::make_header_section(common::HeaderSection {
+    let mut header = common::make_header_section(common::HeaderSection {
         tile_count: 2,
         base_width: 512,
         base_height: 512,
@@ -705,17 +742,16 @@ fn zoom_level_respects_scanner_max_magnification() {
         image_cap_res: 0.12,
         ..Default::default()
     });
-    f.write_all(&header).unwrap();
     let fake_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let index = header.len() + fake_jpeg.len() * 2;
+    common::set_tile_index(&mut header, index);
+    f.write_all(&header).unwrap();
     for _ in 0..2 {
         f.write_all(&fake_jpeg).unwrap();
     }
 
-    let data_area_start = (header.len() + fake_jpeg.len() * 2) as i64;
-    let section_len = common::make_tile_info_section(0, 0, 256, 256, 40.0, 1, 0).len() as i64;
     for (idx, &mag) in [40.0f32, 20.0].iter().enumerate() {
         let jpeg_abs = header.len() as i64 + idx as i64 * fake_jpeg.len() as i64;
-        let sec_abs = data_area_start + idx as i64 * section_len;
         let section = common::make_tile_info_section(
             0,
             0,
@@ -723,7 +759,7 @@ fn zoom_level_respects_scanner_max_magnification() {
             256,
             mag,
             fake_jpeg.len() as i32,
-            jpeg_abs - sec_abs,
+            jpeg_abs - index as i64,
         );
         f.write_all(&section).unwrap();
     }
@@ -905,7 +941,9 @@ fn reader_parses_kfbf_channel_names_colors_and_exposures() {
 fn negative_data_length_returns_invalid_offset() {
     use std::io::Write as _;
     let mut f = NamedTempFile::new().unwrap();
-    let header = common::make_header_section(common::HeaderSection::default());
+    let mut header = common::make_header_section(common::HeaderSection::default());
+    let index = header.len();
+    common::set_tile_index(&mut header, index);
     f.write_all(&header).unwrap();
     // Construct a raw tile section with data_length = -1 (i32 bytes: FF FF FF FF)
     // written at byte 32 of the section, bypassing make_tile_info_section.

@@ -164,27 +164,6 @@ pub(crate) struct TileInfoFields {
 }
 
 impl TileInfo {
-    pub(crate) fn new(
-        pos_x: i32,
-        pos_y: i32,
-        width: i32,
-        height: i32,
-        zoom_level: i32,
-        data_offset: u64,
-        data_length: i32,
-    ) -> Self {
-        Self::from_fields(TileInfoFields {
-            pos_x,
-            pos_y,
-            width,
-            height,
-            channel_index: 0,
-            zoom_level,
-            data_offset,
-            data_length,
-        })
-    }
-
     pub(crate) fn from_fields(fields: TileInfoFields) -> Self {
         Self {
             pos_x: fields.pos_x,

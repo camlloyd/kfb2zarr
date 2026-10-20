@@ -643,6 +643,39 @@ fn open_truncated_header_returns_io_error() {
 }
 
 #[test]
+fn open_tile_index_outside_file_returns_invalid_offset() {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut header = common::make_header_section(common::HeaderSection::default());
+    let past_end = header.len() + 1000;
+    common::set_tile_index(&mut header, past_end);
+    f.write_all(&header).unwrap();
+    f.flush().unwrap();
+
+    let err = KfbReader::open(f.path()).unwrap_err();
+    assert!(
+        matches!(err, KfbError::InvalidOffset { .. }),
+        "expected InvalidOffset, got {err:?}"
+    );
+}
+
+#[test]
+fn open_tile_index_without_tile_records_returns_invalid_magic() {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut header = common::make_header_section(common::HeaderSection::default());
+    let index = header.len();
+    common::set_tile_index(&mut header, index);
+    f.write_all(&header).unwrap();
+    f.write_all(&[0u8; 64]).unwrap(); // where a tile record should be
+    f.flush().unwrap();
+
+    let err = KfbReader::open(f.path()).unwrap_err();
+    assert!(
+        matches!(err, KfbError::InvalidMagic { .. }),
+        "expected InvalidMagic, got {err:?}"
+    );
+}
+
+#[test]
 fn read_tile_bytes_out_of_bounds_returns_invalid_offset() {
     let mut f = NamedTempFile::new().unwrap();
     // Header pointing to a tile at offset 9999 — beyond end of file

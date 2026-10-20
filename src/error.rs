@@ -22,6 +22,13 @@ pub enum KfbError {
     /// A tile or associated-image data range extends beyond the end of the file.
     #[error("data offset {offset} + length exceeds file size {file_len}")]
     InvalidOffset { offset: u64, file_len: u64 },
+    /// The requested chunk size is not a positive multiple of the source tile size, or is
+    /// larger than 4096.
+    #[error(
+        "chunk size {chunk_size} must be a positive multiple of the tile size {tile_size}, at most {}",
+        crate::zarr::MAX_CHUNK_SIZE
+    )]
+    InvalidChunkSize { chunk_size: u64, tile_size: u64 },
     /// Writing the Zarr store failed with the given diagnostic message.
     #[error("Zarr write error: {0}")]
     ZarrWrite(String),

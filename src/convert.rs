@@ -27,6 +27,22 @@ use crate::types::{AssociatedImageKind, DecodedAssociatedImage, TileInfo};
 /// read, [`KfbError::JpegDecode`] if any tile fails to decode, and [`KfbError::ZarrWrite`]
 /// if writing the output store fails.
 pub fn convert_to_zarr(input: &Path, output: &Path) -> Result<(), KfbError> {
+    convert_to_zarr_with_chunk_size(input, output, None)
+}
+
+/// Like [`convert_to_zarr`], but writes chunks of `chunk_size` pixels per side
+/// (capped to each level's dimensions). `None` uses the source tile size.
+///
+/// # Errors
+///
+/// Same as [`convert_to_zarr`], plus [`KfbError::InvalidChunkSize`] if `chunk_size` is
+/// not a positive multiple of the source tile size, or is larger than 4096. Nothing is
+/// written in that case.
+pub fn convert_to_zarr_with_chunk_size(
+    input: &Path,
+    output: &Path,
+    chunk_size: Option<u64>,
+) -> Result<(), KfbError> {
     let reader = KfbReader::open(input)?;
     let header = reader.header().clone();
     let zoom_level_count = header.zoom_levels().max(1) as usize;
@@ -55,5 +71,12 @@ pub fn convert_to_zarr(input: &Path, output: &Path) -> Result<(), KfbError> {
         })
         .collect::<Result<Vec<_>, KfbError>>()?;
 
-    crate::zarr::write_ome_zarr(output, &reader, &header, &by_level, &decoded_associated)
+    crate::zarr::write_ome_zarr(
+        output,
+        &reader,
+        &header,
+        &by_level,
+        &decoded_associated,
+        chunk_size,
+    )
 }

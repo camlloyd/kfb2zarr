@@ -108,6 +108,150 @@ fn synth_brightfield_two_level_kfb() -> NamedTempFile {
     f
 }
 
+/// Two red tiles side by side on one row of a 512x256 base level. Tile x
+/// positions come from the parser's 256-px stride, so the second tile starts at
+/// x=256 and both land in a single 512x256 chunk at different x offsets.
+fn synth_brightfield_two_tiles_one_row_kfb() -> NamedTempFile {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut buf = common::make_header_section(common::HeaderSection {
+        tile_count: 2,
+        base_width: 512,
+        base_height: 256,
+        scan_scale: 20,
+        image_cap_res: 0.25,
+        tile_size: 256,
+        ..Default::default()
+    });
+
+    let jpeg_offset_0 = buf.len() as i64;
+    buf.extend_from_slice(common::RED_1X1_JPEG);
+    let jpeg_offset_1 = buf.len() as i64;
+    buf.extend_from_slice(common::RED_1X1_JPEG);
+
+    let tile_info_pos = buf.len() as i64;
+    for jpeg_offset in [jpeg_offset_0, jpeg_offset_1] {
+        buf.extend_from_slice(&common::make_tile_info_section(
+            0,
+            256,
+            256,
+            20.0,
+            common::RED_1X1_JPEG.len() as i32,
+            jpeg_offset - tile_info_pos,
+        ));
+    }
+
+    f.write_all(&buf).unwrap();
+    f.flush().unwrap();
+    f
+}
+
+/// Single-channel KFBF with two 256x256 tiles. The second tile's y is lower than
+/// the first's, so the parser starts a new column for it, and the tiles land at
+/// (x=0, y=128) and (x=256, y=0). The pair is asymmetric, so swapping x and y
+/// offsets is observable.
+fn synth_fluorescence_two_tiles_kfbf() -> NamedTempFile {
+    let mut data = vec![0u8; 0xb4];
+    data[0..4].copy_from_slice(&common::HEADER_START);
+    data[4..8].copy_from_slice(b"KFBF");
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x10..]);
+        cur.write_i32::<LittleEndian>(2).unwrap();
+        cur.write_i32::<LittleEndian>(512).unwrap();
+        cur.write_i32::<LittleEndian>(256).unwrap();
+        cur.write_i32::<LittleEndian>(40).unwrap();
+        cur.write_all(b"JPEG").unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x4c..]);
+        cur.write_f32::<LittleEndian>(0.25).unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x58..]);
+        cur.write_i32::<LittleEndian>(256).unwrap();
+    }
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0xb0..]);
+        cur.write_u32::<BigEndian>(1).unwrap();
+    }
+
+    let tile_info_pos = data.len();
+    {
+        let mut cur = std::io::Cursor::new(&mut data[0x44..]);
+        cur.write_u64::<LittleEndian>(tile_info_pos as u64).unwrap();
+    }
+
+    let offset_table_pos = tile_info_pos + 2 * 64;
+    let length_table_pos = offset_table_pos + 2 * 8;
+    let jpeg_payloads_pos = length_table_pos + 2 * 8;
+
+    for (i, pos_y) in [128, 0].iter().enumerate() {
+        let mut tile = Vec::new();
+        tile.extend_from_slice(&common::TILE_INFO_START);
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(*pos_y).unwrap();
+        tile.write_i32::<LittleEndian>(256).unwrap();
+        tile.write_i32::<LittleEndian>(256).unwrap();
+        tile.write_f32::<LittleEndian>(40.0).unwrap();
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(0).unwrap();
+        tile.write_i32::<LittleEndian>(1).unwrap();
+        tile.write_u64::<LittleEndian>((offset_table_pos + i * 8) as u64)
+            .unwrap();
+        tile.write_u64::<LittleEndian>((length_table_pos + i * 8) as u64)
+            .unwrap();
+        tile.extend_from_slice(&[0u8; 8]);
+        tile.extend_from_slice(&common::TILE_INFO_END);
+        data.extend_from_slice(&tile);
+    }
+
+    for i in 0..2u64 {
+        data.write_u64::<LittleEndian>(
+            jpeg_payloads_pos as u64 + i * common::RED_1X1_JPEG.len() as u64,
+        )
+        .unwrap();
+    }
+    for _ in 0..2 {
+        data.write_u64::<LittleEndian>(common::RED_1X1_JPEG.len() as u64)
+            .unwrap();
+    }
+    for _ in 0..2 {
+        data.extend_from_slice(common::RED_1X1_JPEG);
+    }
+
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(&data).unwrap();
+    f.flush().unwrap();
+    f
+}
+
+/// One brightfield tile that decodes to 2x2, so the measured tile size is 2.
+fn synth_brightfield_2x2_tile_kfb() -> NamedTempFile {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut buf = common::make_header_section(common::HeaderSection {
+        tile_count: 1,
+        base_width: 2,
+        base_height: 2,
+        scan_scale: 20,
+        image_cap_res: 0.25,
+        tile_size: 2,
+        ..Default::default()
+    });
+    let jpeg_offset = buf.len() as i64;
+    buf.extend_from_slice(common::RED_2X2_JPEG);
+    let tile_info_pos = buf.len() as i64;
+    buf.extend_from_slice(&common::make_tile_info_section(
+        0,
+        2,
+        2,
+        20.0,
+        common::RED_2X2_JPEG.len() as i32,
+        jpeg_offset - tile_info_pos,
+    ));
+    f.write_all(&buf).unwrap();
+    f.flush().unwrap();
+    f
+}
+
 fn synth_brightfield_odd_extent_two_level_kfb() -> NamedTempFile {
     let mut f = NamedTempFile::new().unwrap();
     let mut buf = common::make_header_section(common::HeaderSection {
@@ -688,4 +832,102 @@ fn fluorescence_ome_xml_has_plane_exposure_times() {
     );
     assert!(xml.contains(r#"TheC="0""#));
     assert!(xml.contains(r#"TheC="1""#));
+}
+
+// =========================================================================
+// chunk size
+// =========================================================================
+
+fn retrieve_chunk(output: &Path, level: &str, chunk: &[u64]) -> Vec<u8> {
+    let store = std::sync::Arc::new(zarrs::filesystem::FilesystemStore::new(output).unwrap());
+    zarrs::array::Array::open(store, &format!("/{level}"))
+        .unwrap()
+        .retrieve_chunk_elements::<u8>(chunk)
+        .unwrap()
+}
+
+#[test]
+fn tiles_are_composited_into_one_chunk_at_their_pixel_offsets() {
+    let input = synth_brightfield_two_tiles_one_row_kfb();
+    let dir = TempDir::new().unwrap();
+    let output = dir.path().join("test.zarr");
+    kfb2zarr::convert_to_zarr_with_chunk_size(input.path(), &output, Some(512)).unwrap();
+
+    // The chunk height is capped to the 256 px level height; the width is not.
+    assert_eq!(
+        read_json(&output.join("0/.zarray"))["chunks"],
+        json!([3, 256, 512])
+    );
+
+    // In the green plane of the single chunk, each red 1x1 tile writes a 0 at its
+    // own offset and unwritten pixels keep the white fill. Both tiles are on row 0,
+    // so a swapped x/y offset would put the second one at (0, 256) instead.
+    let chunk = retrieve_chunk(&output, "0", &[0, 0, 0]);
+    let green = &chunk[256 * 512..2 * 256 * 512];
+    assert_eq!(green[0], 0);
+    assert_eq!(green[256], 0);
+    assert_eq!(green.iter().filter(|&&b| b == 0).count(), 2);
+}
+
+#[test]
+fn chunk_size_must_be_a_multiple_of_the_tile_size() {
+    let input = synth_brightfield_2x2_tile_kfb();
+    let dir = TempDir::new().unwrap();
+    let output = dir.path().join("test.zarr");
+    for chunk_size in [0, 3, 8192] {
+        let err =
+            kfb2zarr::convert_to_zarr_with_chunk_size(input.path(), &output, Some(chunk_size))
+                .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                kfb2zarr::KfbError::InvalidChunkSize { tile_size: 2, .. }
+            ),
+            "chunk size {chunk_size}: {err}"
+        );
+        assert!(
+            !output.exists(),
+            "nothing should be written for {chunk_size}"
+        );
+    }
+    kfb2zarr::convert_to_zarr_with_chunk_size(input.path(), &output, Some(4)).unwrap();
+}
+
+#[test]
+fn chunk_size_is_capped_to_each_level_dimensions() {
+    let input = synth_brightfield_two_level_kfb();
+    let dir = TempDir::new().unwrap();
+    let output = dir.path().join("test.zarr");
+    kfb2zarr::convert_to_zarr_with_chunk_size(input.path(), &output, Some(1024)).unwrap();
+
+    // Level 0 is 2x2 and level 1 is 1x1, so neither gets 1024-px chunks that
+    // would round the array shape up.
+    assert_eq!(
+        read_json(&output.join("0/.zarray"))["chunks"],
+        json!([3, 2, 2])
+    );
+    assert_eq!(
+        read_json(&output.join("1/.zarray"))["chunks"],
+        json!([3, 1, 1])
+    );
+}
+
+#[test]
+fn fluorescence_tiles_are_composited_into_one_chunk_at_their_pixel_offsets() {
+    let input = synth_fluorescence_two_tiles_kfbf();
+    let dir = TempDir::new().unwrap();
+    let output = dir.path().join("test.zarr");
+    kfb2zarr::convert_to_zarr_with_chunk_size(input.path(), &output, Some(512)).unwrap();
+
+    let shape = read_json(&output.join("0/.zarray"))["shape"].clone();
+    let chunks = read_json(&output.join("0/.zarray"))["chunks"].clone();
+    assert_eq!(shape, json!([1, 384, 512]));
+    assert_eq!(chunks, json!([1, 384, 512]));
+
+    // Each decoded 1x1 tile writes one non-zero luma pixel at its own offset,
+    // (y=128, x=0) and (y=0, x=256). Every other pixel stays at the zero fill.
+    let chunk = retrieve_chunk(&output, "0", &[0, 0, 0]);
+    assert_ne!(chunk[128 * 512], 0);
+    assert_ne!(chunk[256], 0);
+    assert_eq!(chunk.iter().filter(|&&b| b != 0).count(), 2);
 }

@@ -21,6 +21,9 @@ use crate::error::KfbError;
 use crate::reader::KfbReader;
 use crate::types::{AssociatedImageKind, DecodedAssociatedImage, KfbHeader, TileInfo};
 
+/// Largest chunk side that keeps a chunk under Blosc's 2 GB buffer limit, even with 31 channels.
+pub(crate) const MAX_CHUNK_SIZE: u64 = 4096;
+
 fn zarr_err<E: std::fmt::Display>(e: E) -> KfbError {
     KfbError::ZarrWrite(e.to_string())
 }
@@ -169,19 +172,22 @@ fn base_level_dimensions(header: &KfbHeader, tiles: &[TileInfo]) -> (u64, u64) {
 }
 
 /// Reorder a tile's pixel data from interleaved HWC (JPEG output) to planar CHW
-/// (OME-Zarr [c, y, x] convention).  Pads partial edge tiles to `dst_h × dst_w`
-/// and clips any decoded padding beyond the chunk boundary.
-fn hwc_to_chw_padded(
+/// (OME-Zarr [c, y, x] convention) and write it at pixel offset (`off_y`, `off_x`)
+/// inside an existing chunk buffer. Decoded padding past the chunk edge is dropped,
+/// and pixels the tile does not cover keep the buffer's fill value.
+#[allow(clippy::too_many_arguments)]
+fn place_hwc_into_chw(
+    chw: &mut [u8],
     hwc: &[u8],
     src_w: usize,
     src_h: usize,
     dst_w: usize,
     dst_h: usize,
-    fill_value: u8,
-) -> Vec<u8> {
-    let mut chw = vec![fill_value; 3 * dst_h * dst_w];
-    let copy_w = src_w.min(dst_w);
-    let copy_h = src_h.min(dst_h);
+    off_x: usize,
+    off_y: usize,
+) {
+    let copy_w = src_w.min(dst_w.saturating_sub(off_x));
+    let copy_h = src_h.min(dst_h.saturating_sub(off_y));
     let plane = dst_h * dst_w;
 
     let (r_plane, rest) = chw.split_at_mut(plane);
@@ -189,9 +195,10 @@ fn hwc_to_chw_padded(
 
     for y in 0..copy_h {
         let src_row = &hwc[y * src_w * 3..][..copy_w * 3];
-        let r_row = &mut r_plane[y * dst_w..][..dst_w];
-        let g_row = &mut g_plane[y * dst_w..][..dst_w];
-        let b_row = &mut b_plane[y * dst_w..][..dst_w];
+        let row = (off_y + y) * dst_w + off_x;
+        let r_row = &mut r_plane[row..][..copy_w];
+        let g_row = &mut g_plane[row..][..copy_w];
+        let b_row = &mut b_plane[row..][..copy_w];
 
         for (x, px) in src_row.chunks_exact(3).enumerate() {
             r_row[x] = px[0];
@@ -199,9 +206,9 @@ fn hwc_to_chw_padded(
             b_row[x] = px[2];
         }
     }
-    chw
 }
 
+#[allow(clippy::too_many_arguments)]
 fn copy_luma_plane(
     chunk: &mut [u8],
     luma: &[u8],
@@ -210,14 +217,16 @@ fn copy_luma_plane(
     raw_h: usize,
     dst_w: usize,
     dst_h: usize,
+    off_x: usize,
+    off_y: usize,
 ) {
     let plane_start = channel_index * dst_h * dst_w;
-    let copy_w = raw_w.min(dst_w);
-    let copy_h = raw_h.min(dst_h);
+    let copy_w = raw_w.min(dst_w.saturating_sub(off_x));
+    let copy_h = raw_h.min(dst_h.saturating_sub(off_y));
     for raw_y in 0..copy_h {
         let src = &luma[raw_y * raw_w..][..copy_w];
-        let dst = &mut chunk[plane_start + raw_y * dst_w..][..dst_w];
-        dst[..copy_w].copy_from_slice(src);
+        let dst = &mut chunk[plane_start + (off_y + raw_y) * dst_w + off_x..][..copy_w];
+        dst.copy_from_slice(src);
     }
 }
 
@@ -340,12 +349,15 @@ fn write_associated_image(
     let array =
         Array::new_with_metadata(store, &array_path, array_meta.into()).map_err(zarr_err)?;
     array.store_metadata().map_err(zarr_err)?;
-    let chw = hwc_to_chw_padded(
+    let mut chw = vec![0u8; 3 * image.height as usize * image.width as usize];
+    place_hwc_into_chw(
+        &mut chw,
         &image.pixels,
         image.width as usize,
         image.height as usize,
         image.width as usize,
         image.height as usize,
+        0,
         0,
     );
     array
@@ -355,12 +367,13 @@ fn write_associated_image(
 
 fn group_tiles_by_spatial_chunk(
     tiles: &[TileInfo],
-    tile_size: u64,
+    chunk_h: u64,
+    chunk_w: u64,
 ) -> std::collections::BTreeMap<(u64, u64), Vec<&TileInfo>> {
     let mut chunks = std::collections::BTreeMap::<(u64, u64), Vec<&TileInfo>>::new();
     for tile in tiles {
-        let cy = tile.pos_y() as u64 / tile_size;
-        let cx = tile.pos_x() as u64 / tile_size;
+        let cy = tile.pos_y() as u64 / chunk_h;
+        let cx = tile.pos_x() as u64 / chunk_w;
         chunks.entry((cy, cx)).or_default().push(tile);
     }
     chunks
@@ -371,16 +384,16 @@ fn write_fluorescence_level(
     reader: &KfbReader,
     tiles: &[TileInfo],
     channel_count: usize,
-    tile_size: u64,
+    chunk_h: usize,
+    chunk_w: usize,
     fill_value: u8,
 ) -> Result<(), KfbError> {
-    let ts = tile_size as usize;
-    let chunks = group_tiles_by_spatial_chunk(tiles, tile_size);
+    let chunks = group_tiles_by_spatial_chunk(tiles, chunk_h as u64, chunk_w as u64);
 
     chunks
         .into_par_iter()
         .try_for_each(|((cy, cx), chunk_tiles)| {
-            let mut chunk = vec![fill_value; channel_count * ts * ts];
+            let mut chunk = vec![fill_value; channel_count * chunk_h * chunk_w];
             for tile in chunk_tiles {
                 let jpeg = reader.read_tile_bytes(tile)?;
                 let (luma, raw_w, raw_h) = decode_jpeg_luma(jpeg)?;
@@ -390,8 +403,10 @@ fn write_fluorescence_level(
                     tile.channel_index(),
                     raw_w,
                     raw_h,
-                    ts,
-                    ts,
+                    chunk_w,
+                    chunk_h,
+                    tile.pos_x() as usize % chunk_w,
+                    tile.pos_y() as usize % chunk_h,
                 );
             }
             array
@@ -404,20 +419,34 @@ fn write_brightfield_level(
     array: &Array<zarrs::filesystem::FilesystemStore>,
     reader: &KfbReader,
     tiles: &[TileInfo],
-    tile_size: u64,
+    chunk_h: usize,
+    chunk_w: usize,
     fill_value: u8,
 ) -> Result<(), KfbError> {
-    tiles.par_iter().try_for_each(|tile| {
-        let jpeg = reader.read_tile_bytes(tile)?;
-        let (pixels, tile_w, tile_h) = decode_jpeg(jpeg)?;
-        let cy = tile.pos_y() as u64 / tile_size;
-        let cx = tile.pos_x() as u64 / tile_size;
-        let ts = tile_size as usize;
-        let chw = hwc_to_chw_padded(&pixels, tile_w, tile_h, ts, ts, fill_value);
-        array
-            .store_chunk_elements::<u8>(&[0, cy, cx], &chw)
-            .map_err(zarr_err)
-    })
+    let chunks = group_tiles_by_spatial_chunk(tiles, chunk_h as u64, chunk_w as u64);
+
+    chunks
+        .into_par_iter()
+        .try_for_each(|((cy, cx), chunk_tiles)| {
+            let mut chw = vec![fill_value; 3 * chunk_h * chunk_w];
+            for tile in chunk_tiles {
+                let jpeg = reader.read_tile_bytes(tile)?;
+                let (pixels, tile_w, tile_h) = decode_jpeg(jpeg)?;
+                place_hwc_into_chw(
+                    &mut chw,
+                    &pixels,
+                    tile_w,
+                    tile_h,
+                    chunk_w,
+                    chunk_h,
+                    tile.pos_x() as usize % chunk_w,
+                    tile.pos_y() as usize % chunk_h,
+                );
+            }
+            array
+                .store_chunk_elements::<u8>(&[0, cy, cx], &chw)
+                .map_err(zarr_err)
+        })
 }
 
 pub(crate) fn write_ome_zarr(
@@ -426,8 +455,17 @@ pub(crate) fn write_ome_zarr(
     header: &KfbHeader,
     tiles_by_level: &[Vec<TileInfo>],
     associated_images: &[DecodedAssociatedImage],
+    chunk_size: Option<u64>,
 ) -> Result<(), KfbError> {
     let tile_size = infer_chunk_tile_size(reader, header, tiles_by_level)?;
+    let chunk_size = chunk_size.unwrap_or(tile_size);
+    // Each tile is copied into exactly one chunk, so a chunk must hold whole tiles.
+    if chunk_size == 0 || !chunk_size.is_multiple_of(tile_size) || chunk_size > MAX_CHUNK_SIZE {
+        return Err(KfbError::InvalidChunkSize {
+            chunk_size,
+            tile_size,
+        });
+    }
     let base_dimensions =
         base_level_dimensions(header, tiles_by_level.first().map_or(&[], Vec::as_slice));
     let level_dimensions: Vec<_> = tiles_by_level
@@ -442,25 +480,34 @@ pub(crate) fn write_ome_zarr(
         })
         .collect();
 
+    // Cap each level's chunk to the level size, so zarrs doesn't round the array
+    // shape up when the level is smaller than the requested chunk size.
+    let chunk_dims: Vec<(u64, u64)> = level_dimensions
+        .iter()
+        .map(|&(level_w, level_h)| (chunk_size.min(level_h), chunk_size.min(level_w)))
+        .collect();
+
     write_ome_zarr_with_level_writer(
         output,
         header,
-        tile_size,
+        &chunk_dims,
         &level_dimensions,
         associated_images,
         |i, array, fill_value| {
             let tiles = &tiles_by_level[i];
+            let (chunk_h, chunk_w) = (chunk_dims[i].0 as usize, chunk_dims[i].1 as usize);
             if header.is_fluorescence() {
                 write_fluorescence_level(
                     array,
                     reader,
                     tiles,
                     header.channel_count(),
-                    tile_size,
+                    chunk_h,
+                    chunk_w,
                     fill_value,
                 )
             } else {
-                write_brightfield_level(array, reader, tiles, tile_size, fill_value)
+                write_brightfield_level(array, reader, tiles, chunk_h, chunk_w, fill_value)
             }
         },
     )
@@ -488,7 +535,7 @@ fn infer_chunk_tile_size(
 fn write_ome_zarr_with_level_writer<F>(
     output: &Path,
     header: &KfbHeader,
-    tile_size: u64,
+    chunk_dims: &[(u64, u64)],
     level_dimensions: &[(u64, u64)],
     associated_images: &[DecodedAssociatedImage],
     mut write_level: F,
@@ -682,7 +729,7 @@ where
         // A single chunk spans all channels for a given (y, x) tile.
         let array_meta = ArrayMetadataV2::new(
             vec![channel_count as u64, level_h, level_w],
-            vec![channel_count as u64, tile_size, tile_size]
+            vec![channel_count as u64, chunk_dims[i].0, chunk_dims[i].1]
                 .try_into()
                 .map_err(zarr_err)?,
             DataTypeMetadataV2::Simple("|u1".into()),
@@ -729,7 +776,7 @@ mod tests {
         let luma = vec![1u8, 2, 3, 4, 5, 6];
         let mut chunk = vec![0u8; 4 * 4];
 
-        copy_luma_plane(&mut chunk, &luma, 0, 3, 2, 4, 4);
+        copy_luma_plane(&mut chunk, &luma, 0, 3, 2, 4, 4, 0, 0);
 
         assert_eq!(&chunk[0..4], &[1, 2, 3, 0]);
         assert_eq!(&chunk[4..8], &[4, 5, 6, 0]);
@@ -739,10 +786,79 @@ mod tests {
     fn brightfield_hwc_to_chw_clips_decoded_padding() {
         let pixels = vec![7u8; 5 * 5 * 3];
 
-        let chunk = hwc_to_chw_padded(&pixels, 5, 5, 4, 4, 0);
+        let mut chunk = vec![0u8; 3 * 4 * 4];
+        place_hwc_into_chw(&mut chunk, &pixels, 5, 5, 4, 4, 0, 0);
 
         assert_eq!(chunk.len(), 3 * 4 * 4);
         assert!(chunk.iter().all(|&b| b == 7));
+    }
+
+    #[test]
+    fn brightfield_tile_lands_at_its_chunk_offset_and_clips_at_the_edge() {
+        // 3x2 source tile, R = 10*(y+1) + (x+1), placed near the right edge of a
+        // 6x4 chunk so its last column falls outside and must be dropped.
+        let hwc: Vec<u8> = (0..2)
+            .flat_map(|y| (0..3).flat_map(move |x| [11 + 10 * y + x, 111 + 10 * y + x, 211]))
+            .collect();
+        let mut chw = vec![0u8; 3 * 4 * 6];
+
+        place_hwc_into_chw(&mut chw, &hwc, 3, 2, 6, 4, 4, 1);
+
+        #[rustfmt::skip]
+        let expected_r = [
+            0, 0, 0, 0,  0,  0,
+            0, 0, 0, 0, 11, 12,
+            0, 0, 0, 0, 21, 22,
+            0, 0, 0, 0,  0,  0,
+        ];
+        assert_eq!(&chw[..24], &expected_r);
+        assert_eq!(&chw[24 + 10..24 + 12], &[111, 112]);
+        assert_eq!(&chw[48 + 10..48 + 12], &[211, 211]);
+    }
+
+    #[test]
+    fn fluorescence_tile_lands_at_its_chunk_offset_and_clips_at_the_edge() {
+        let luma = vec![1u8, 2, 3, 4, 5, 6];
+        let mut chunk = vec![0u8; 2 * 4 * 6];
+
+        // Channel 1, 3x2 tile at (off_x, off_y) = (4, 2). One column is clipped,
+        // and the clipped pixels must not wrap into the following row.
+        copy_luma_plane(&mut chunk, &luma, 1, 3, 2, 6, 4, 4, 2);
+
+        #[rustfmt::skip]
+        let expected = [
+            0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 1, 2,
+            0, 0, 0, 0, 4, 5,
+        ];
+        assert_eq!(&chunk[24..], &expected);
+        assert!(chunk[..24].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn spatial_chunk_grouping_uses_height_for_rows_and_width_for_columns() {
+        let tile = |pos_x, pos_y| {
+            TileInfo::from_fields(TileInfoFields {
+                pos_x,
+                pos_y,
+                width: 4,
+                height: 4,
+                channel_index: 0,
+                zoom_level: 0,
+                data_offset: 10,
+                data_length: 4,
+            })
+        };
+        let tiles = [tile(0, 0), tile(4, 0), tile(0, 4)];
+
+        // Non-square chunk: 8 wide, 4 high. The tile at x=4 shares chunk (0, 0);
+        // the tile at y=4 starts a new chunk row.
+        let grouped = group_tiles_by_spatial_chunk(&tiles, 4, 8);
+
+        assert_eq!(grouped[&(0, 0)].len(), 2);
+        assert_eq!(grouped[&(1, 0)].len(), 1);
+        assert_eq!(grouped.len(), 2);
     }
 
     #[test]
@@ -780,7 +896,7 @@ mod tests {
             }),
         ];
 
-        let grouped = group_tiles_by_spatial_chunk(&tiles, 4);
+        let grouped = group_tiles_by_spatial_chunk(&tiles, 4, 4);
 
         assert_eq!(grouped.len(), 2);
         assert_eq!(

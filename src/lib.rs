@@ -44,7 +44,7 @@ pub mod reader;
 pub mod types;
 pub(crate) mod zarr;
 
-pub use convert::convert_to_zarr;
+pub use convert::{convert_to_zarr, convert_to_zarr_with_chunk_size};
 pub use error::KfbError;
 pub use reader::KfbReader;
 pub use types::{AssociatedImage, AssociatedImageKind, ChannelMetadata, KfbHeader, TileInfo};

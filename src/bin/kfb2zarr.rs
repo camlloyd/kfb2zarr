@@ -16,6 +16,9 @@ struct Args {
     /// Threads for tile decode and write. 0 (default) uses all CPU cores.
     #[arg(long, default_value_t = 0)]
     threads: usize,
+    /// Zarr chunk size in pixels per side. Defaults to the source tile size.
+    #[arg(long)]
+    chunk_size: Option<u64>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -49,7 +52,7 @@ fn main() -> anyhow::Result<()> {
         args.input.display(),
         args.output.display()
     );
-    kfb2zarr::convert_to_zarr(&args.input, &args.output)?;
+    kfb2zarr::convert_to_zarr_with_chunk_size(&args.input, &args.output, args.chunk_size)?;
     eprintln!("Done.");
     Ok(())
 }

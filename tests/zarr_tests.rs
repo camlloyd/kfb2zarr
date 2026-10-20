@@ -50,6 +50,7 @@ fn synth_brightfield_kfb_with_label(
     buf.extend_from_slice(common::RED_1X1_JPEG);
 
     let tile_info_pos = buf.len() as i64;
+    common::set_tile_index(&mut buf, tile_info_pos as usize);
     let offset_from_tile_info = jpeg_offset - tile_info_pos;
     let tile_info = common::make_tile_info_section(
         0,
@@ -85,6 +86,7 @@ fn synth_brightfield_two_level_kfb() -> NamedTempFile {
     buf.extend_from_slice(common::RED_1X1_JPEG);
 
     let first_tile_info_pos = buf.len() as i64;
+    common::set_tile_index(&mut buf, first_tile_info_pos as usize);
     let tile_info_1 = common::make_tile_info_section(
         0,
         0,
@@ -132,6 +134,7 @@ fn synth_brightfield_two_tiles_one_row_kfb() -> NamedTempFile {
     buf.extend_from_slice(common::RED_1X1_JPEG);
 
     let tile_info_pos = buf.len() as i64;
+    common::set_tile_index(&mut buf, tile_info_pos as usize);
     for (x, jpeg_offset) in [(0, jpeg_offset_0), (256, jpeg_offset_1)] {
         buf.extend_from_slice(&common::make_tile_info_section(
             x,
@@ -241,6 +244,7 @@ fn synth_brightfield_2x2_tile_kfb() -> NamedTempFile {
     let jpeg_offset = buf.len() as i64;
     buf.extend_from_slice(common::RED_2X2_JPEG);
     let tile_info_pos = buf.len() as i64;
+    common::set_tile_index(&mut buf, tile_info_pos as usize);
     buf.extend_from_slice(&common::make_tile_info_section(
         0,
         0,
@@ -273,6 +277,7 @@ fn synth_brightfield_odd_extent_two_level_kfb() -> NamedTempFile {
     buf.extend_from_slice(common::RED_1X1_JPEG);
 
     let tile_info_pos_0 = buf.len() as i64;
+    common::set_tile_index(&mut buf, tile_info_pos_0 as usize);
     let tile_info_0 = common::make_tile_info_section(
         0,
         4,
@@ -723,6 +728,7 @@ fn shape_uses_tile_bounds_when_header_is_short() {
     let jpeg_offset = buf.len() as i64;
     buf.extend_from_slice(common::RED_1X1_JPEG);
     let tile_info_pos = buf.len() as i64;
+    common::set_tile_index(&mut buf, tile_info_pos as usize);
     let tile_info = common::make_tile_info_section(
         0,
         4, // y_native — exceeds header height 3

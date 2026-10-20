@@ -4,19 +4,25 @@ use std::io::Cursor;
 use crate::error::KfbError;
 use crate::types::{
     AssociatedImage, AssociatedImageKind, ChannelMetadata, KfbFormat, KfbHeader, KfbHeaderFields,
-    TileInfo,
 };
 
 const HEADER_START: [u8; 4] = [0xF1, 0x01, 0xEE, 0xEE];
 const TILE_INFO_START: [u8; 4] = [0xF1, 0x04, 0xEE, 0xEE];
 
-pub(crate) struct KfbfTileInfo {
+/// One 64-byte tile record from the tile index. The leading fields mean the same in
+/// both formats; the last three locate the tile's JPEG data, which differs.
+pub(crate) struct TileRecord {
     pub pos_x: i32,
     pub pos_y: i32,
     pub width: i32,
     pub height: i32,
     pub zoom_level: i32,
-    pub offset_table: u64,
+    /// Length of the JPEG data. Unused in KFBF.
+    pub data_length: i32,
+    /// In KFB, the JPEG data's offset from the start of the tile index. In KFBF, the
+    /// file offset of the per-channel JPEG offset table.
+    pub data_offset: i64,
+    /// In KFBF, the file offset of the per-channel JPEG length table. Unused in KFB.
     pub length_table: u64,
 }
 
@@ -250,66 +256,11 @@ pub(crate) fn parse_associated_image(
     ))
 }
 
-pub(crate) fn parse_tile_info(
+pub(crate) fn parse_tile_record(
     data: &[u8],
     section_start: u64,
     max_mag: f32,
-) -> Result<TileInfo, KfbError> {
-    if data.len() < 4 || data[0..4] != TILE_INFO_START {
-        let mut actual = [0u8; 4];
-        if data.len() >= 4 {
-            actual.copy_from_slice(&data[0..4]);
-        }
-        return Err(KfbError::InvalidMagic {
-            offset: section_start,
-            expected: TILE_INFO_START,
-            actual,
-        });
-    }
-
-    let mut cur = Cursor::new(&data[4..]);
-    // KFB tile section layout (confirmed by field analysis):
-    //   byte  4-7:  x-coord in the level's pixel space
-    //   byte  8-11: y-coord in the level's pixel space
-    //   byte 12-15: tile width in pixels
-    //   byte 16-19: tile height in pixels
-    //   byte 20-23: zoom magnification as f32 (20.0 = full resolution)
-    //   byte 24-27: unused (always 0)
-    let x_native = cur.read_i32::<LittleEndian>()?;
-    let y_native = cur.read_i32::<LittleEndian>()?;
-    let tile_w = cur.read_i32::<LittleEndian>()?;
-    let tile_h = cur.read_i32::<LittleEndian>()?;
-    let mag = cur.read_f32::<LittleEndian>()?;
-    let _unused = cur.read_i32::<LittleEndian>()?;
-    // skip 4 bytes
-    let pos = cur.position();
-    cur.set_position(pos + 4);
-    let data_length = cur.read_i32::<LittleEndian>()?;
-    let offset_from_file = cur.read_i64::<LittleEndian>()?;
-
-    // zoom_level 0 = full resolution; each step halves magnification.
-    let zoom_level = if mag > 0.0 && max_mag > 0.0 {
-        (max_mag / mag).log2().round() as i32
-    } else {
-        0
-    };
-
-    Ok(TileInfo::new(
-        x_native,
-        y_native,
-        tile_w,
-        tile_h,
-        zoom_level,
-        (section_start as i64 + offset_from_file) as u64,
-        data_length,
-    ))
-}
-
-pub(crate) fn parse_kfbf_tile_info(
-    data: &[u8],
-    section_start: u64,
-    max_mag: f32,
-) -> Result<KfbfTileInfo, KfbError> {
+) -> Result<TileRecord, KfbError> {
     if data.len() < 64 || data[0..4] != TILE_INFO_START {
         let mut actual = [0u8; 4];
         if data.len() >= 4 {
@@ -322,31 +273,41 @@ pub(crate) fn parse_kfbf_tile_info(
         });
     }
 
-    // Width is at byte 12 and height at byte 16, as in a KFB tile section.
     let mut cur = Cursor::new(&data[4..]);
+    // Tile record layout, the same in KFB and KFBF (confirmed by field analysis):
+    //   byte  4-7:  x-coord in the level's pixel space
+    //   byte  8-11: y-coord in the level's pixel space
+    //   byte 12-15: tile width in pixels
+    //   byte 16-19: tile height in pixels
+    //   byte 20-23: zoom magnification as f32 (20.0 = full resolution)
+    //   byte 32-35: data length (see TileRecord)
+    //   byte 36-43: data offset (see TileRecord)
+    //   byte 44-51: KFBF length table offset
     let pos_x = cur.read_i32::<LittleEndian>()?;
     let pos_y = cur.read_i32::<LittleEndian>()?;
-    let tile_w = cur.read_i32::<LittleEndian>()?;
-    let tile_h = cur.read_i32::<LittleEndian>()?;
+    let width = cur.read_i32::<LittleEndian>()?;
+    let height = cur.read_i32::<LittleEndian>()?;
     let mag = cur.read_f32::<LittleEndian>()?;
     cur.set_position(28);
-    let _data_length = cur.read_i32::<LittleEndian>()?;
-    let offset_table = cur.read_i64::<LittleEndian>()? as u64;
-    let length_table = cur.read_i64::<LittleEndian>()? as u64;
+    let data_length = cur.read_i32::<LittleEndian>()?;
+    let data_offset = cur.read_i64::<LittleEndian>()?;
+    let length_table = cur.read_u64::<LittleEndian>()?;
 
+    // zoom_level 0 = full resolution; each step halves magnification.
     let zoom_level = if mag > 0.0 && max_mag > 0.0 {
         (max_mag / mag).log2().round() as i32
     } else {
         0
     };
 
-    Ok(KfbfTileInfo {
+    Ok(TileRecord {
         pos_x,
         pos_y,
-        width: tile_w,
-        height: tile_h,
+        width,
+        height,
         zoom_level,
-        offset_table,
+        data_length,
+        data_offset,
         length_table,
     })
 }

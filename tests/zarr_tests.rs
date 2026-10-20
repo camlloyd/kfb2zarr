@@ -156,8 +156,8 @@ fn synth_fluorescence_two_tiles_kfbf() -> NamedTempFile {
     {
         let mut cur = std::io::Cursor::new(&mut data[0x10..]);
         cur.write_i32::<LittleEndian>(2).unwrap();
-        cur.write_i32::<LittleEndian>(512).unwrap();
-        cur.write_i32::<LittleEndian>(256).unwrap();
+        cur.write_i32::<LittleEndian>(256).unwrap(); // height
+        cur.write_i32::<LittleEndian>(512).unwrap(); // width
         cur.write_i32::<LittleEndian>(40).unwrap();
         cur.write_all(b"JPEG").unwrap();
     }

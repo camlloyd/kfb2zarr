@@ -54,10 +54,10 @@ pub(crate) fn parse_header(data: &[u8]) -> Result<KfbHeader, KfbError> {
 
     let (base_width, base_height, channel_count, tile_size) = match format {
         KfbFormat::Brightfield => (base_width, base_height, 3, kfb_tile_size),
-        // KFBF stores dimensions and tile size in different fixed-header slots.
+        // Both formats store height at 0x14 and width at 0x18.
         KfbFormat::Fluorescence => (
-            base_height,
             base_width,
+            base_height,
             parse_kfbf_channel_count(data),
             parse_kfbf_tile_size(data).unwrap_or(kfb_tile_size),
         ),
@@ -321,9 +321,10 @@ pub(crate) fn parse_kfbf_tile_info(
     }
 
     let mut cur = Cursor::new(&data[8..]);
+    // Width is at byte 12 and height at byte 16, as in a KFB tile section.
     let pos_y = cur.read_i32::<LittleEndian>()?;
-    let tile_h = cur.read_i32::<LittleEndian>()?;
     let tile_w = cur.read_i32::<LittleEndian>()?;
+    let tile_h = cur.read_i32::<LittleEndian>()?;
     let mag = cur.read_f32::<LittleEndian>()?;
     cur.set_position(24);
     let _data_length = cur.read_i32::<LittleEndian>()?;

@@ -112,7 +112,7 @@ impl KfbReader {
     fn scan_tiles(data: &[u8], header: &KfbHeader) -> Result<Vec<TileInfo>, KfbError> {
         let max_mag = header.scan_scale() as f32;
         let channel_count = header.channel_count();
-        let mut tiles = Vec::with_capacity(header.tile_count() as usize * channel_count);
+        let mut tiles = Vec::new();
         let tile_index_offset = read_u64_le(data, 0x44)? as usize;
 
         for index in 0..header.tile_count().max(0) as usize {

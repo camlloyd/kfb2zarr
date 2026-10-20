@@ -35,6 +35,12 @@ To limit CPU usage (default uses all cores):
 kfb2zarr slide.kfb slide.ome.zarr --threads 4
 ```
 
+To change the chunk size (default uses the tile size; must be a multiple of it, up to 4096):
+
+```sh
+kfb2zarr slide.kfb slide.ome.zarr --chunk-size 512
+```
+
 ## Viewing the output
 
 The output `.ome.zarr` can be viewed locally with:

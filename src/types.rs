@@ -116,7 +116,8 @@ impl KfbHeader {
     pub fn channel_count(&self) -> usize {
         self.channel_count
     }
-    /// Number of resolution levels in the multi-resolution pyramid.
+    /// Number of resolution levels, estimated from the header's image size and
+    /// nominal tile size.
     pub fn zoom_levels(&self) -> i32 {
         self.zoom_levels
     }

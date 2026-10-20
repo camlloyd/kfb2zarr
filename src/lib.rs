@@ -40,6 +40,7 @@ pub(crate) mod convert;
 pub(crate) mod decode;
 pub mod error;
 pub(crate) mod parser;
+pub(crate) mod pyramid;
 pub mod reader;
 pub mod types;
 pub(crate) mod zarr;

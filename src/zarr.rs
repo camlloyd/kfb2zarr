@@ -18,6 +18,7 @@ use zarrs::metadata::{ChunkKeySeparator, GroupMetadata};
 
 use crate::decode::{decode_jpeg, decode_jpeg_luma};
 use crate::error::KfbError;
+use crate::pyramid::Pyramid;
 use crate::reader::KfbReader;
 use crate::types::{AssociatedImageKind, DecodedAssociatedImage, KfbHeader, TileInfo};
 
@@ -160,15 +161,6 @@ fn write_ome_xml_metadata(
     );
 
     fs::write(metadata_dir.join("METADATA.ome.xml"), xml).map_err(zarr_err)
-}
-
-fn base_level_dimensions(header: &KfbHeader, tiles: &[TileInfo]) -> (u64, u64) {
-    let header_bounds = (header.base_width() as u64, header.base_height() as u64);
-    tiles.iter().fold(header_bounds, |(w, h), tile| {
-        let max_x = (tile.pos_x() + tile.width()).max(0) as u64;
-        let max_y = (tile.pos_y() + tile.height()).max(0) as u64;
-        (w.max(max_x), h.max(max_y))
-    })
 }
 
 /// Reorder a tile's pixel data from interleaved HWC (JPEG output) to planar CHW
@@ -453,11 +445,11 @@ pub(crate) fn write_ome_zarr(
     output: &Path,
     reader: &KfbReader,
     header: &KfbHeader,
-    tiles_by_level: &[Vec<TileInfo>],
+    pyramid: &Pyramid,
     associated_images: &[DecodedAssociatedImage],
     chunk_size: Option<u64>,
 ) -> Result<(), KfbError> {
-    let tile_size = infer_chunk_tile_size(reader, header, tiles_by_level)?;
+    let tile_size = pyramid.tile_size;
     let chunk_size = chunk_size.unwrap_or(tile_size);
     // Each tile is copied into exactly one chunk, so a chunk must hold whole tiles.
     if chunk_size == 0 || !chunk_size.is_multiple_of(tile_size) || chunk_size > MAX_CHUNK_SIZE {
@@ -466,18 +458,10 @@ pub(crate) fn write_ome_zarr(
             tile_size,
         });
     }
-    let base_dimensions =
-        base_level_dimensions(header, tiles_by_level.first().map_or(&[], Vec::as_slice));
-    let level_dimensions: Vec<_> = tiles_by_level
+    let level_dimensions: Vec<_> = pyramid
+        .levels
         .iter()
-        .enumerate()
-        .map(|(i, _)| {
-            let scale_factor = 1u64 << i;
-            (
-                base_dimensions.0.div_ceil(scale_factor),
-                base_dimensions.1.div_ceil(scale_factor),
-            )
-        })
+        .map(|level| (level.width, level.height))
         .collect();
 
     // Cap each level's chunk to the level size, so zarrs doesn't round the array
@@ -494,7 +478,7 @@ pub(crate) fn write_ome_zarr(
         &level_dimensions,
         associated_images,
         |i, array, fill_value| {
-            let tiles = &tiles_by_level[i];
+            let tiles = &pyramid.levels[i].tiles;
             let (chunk_h, chunk_w) = (chunk_dims[i].0 as usize, chunk_dims[i].1 as usize);
             if header.is_fluorescence() {
                 write_fluorescence_level(
@@ -511,25 +495,6 @@ pub(crate) fn write_ome_zarr(
             }
         },
     )
-}
-
-fn infer_chunk_tile_size(
-    reader: &KfbReader,
-    header: &KfbHeader,
-    tiles_by_level: &[Vec<TileInfo>],
-) -> Result<u64, KfbError> {
-    let Some(tile) = tiles_by_level.iter().flatten().next() else {
-        return Ok(header.tile_size() as u64);
-    };
-    let jpeg = reader.read_tile_bytes(tile)?;
-    let (width, height) = if header.is_fluorescence() {
-        let (_, width, height) = decode_jpeg_luma(jpeg)?;
-        (width, height)
-    } else {
-        let (_, width, height) = decode_jpeg(jpeg)?;
-        (width, height)
-    };
-    Ok(width.max(height) as u64)
 }
 
 fn write_ome_zarr_with_level_writer<F>(

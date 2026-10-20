@@ -11,6 +11,7 @@ const HEADER_START: [u8; 4] = [0xF1, 0x01, 0xEE, 0xEE];
 const TILE_INFO_START: [u8; 4] = [0xF1, 0x04, 0xEE, 0xEE];
 
 pub(crate) struct KfbfTileInfo {
+    pub pos_x: i32,
     pub pos_y: i32,
     pub width: i32,
     pub height: i32,
@@ -266,14 +267,15 @@ pub(crate) fn parse_tile_info(
         });
     }
 
-    let mut cur = Cursor::new(&data[8..]);
+    let mut cur = Cursor::new(&data[4..]);
     // KFB tile section layout (confirmed by field analysis):
-    //   byte  8-11: y-coord at native resolution
+    //   byte  4-7:  x-coord in the level's pixel space
+    //   byte  8-11: y-coord in the level's pixel space
     //   byte 12-15: tile width in pixels
     //   byte 16-19: tile height in pixels
     //   byte 20-23: zoom magnification as f32 (20.0 = full resolution)
     //   byte 24-27: unused (always 0)
-    // pos_x is left as 0 and set later in KfbReader::scan() from section rank.
+    let x_native = cur.read_i32::<LittleEndian>()?;
     let y_native = cur.read_i32::<LittleEndian>()?;
     let tile_w = cur.read_i32::<LittleEndian>()?;
     let tile_h = cur.read_i32::<LittleEndian>()?;
@@ -293,7 +295,7 @@ pub(crate) fn parse_tile_info(
     };
 
     Ok(TileInfo::new(
-        0,
+        x_native,
         y_native,
         tile_w,
         tile_h,
@@ -320,13 +322,14 @@ pub(crate) fn parse_kfbf_tile_info(
         });
     }
 
-    let mut cur = Cursor::new(&data[8..]);
     // Width is at byte 12 and height at byte 16, as in a KFB tile section.
+    let mut cur = Cursor::new(&data[4..]);
+    let pos_x = cur.read_i32::<LittleEndian>()?;
     let pos_y = cur.read_i32::<LittleEndian>()?;
     let tile_w = cur.read_i32::<LittleEndian>()?;
     let tile_h = cur.read_i32::<LittleEndian>()?;
     let mag = cur.read_f32::<LittleEndian>()?;
-    cur.set_position(24);
+    cur.set_position(28);
     let _data_length = cur.read_i32::<LittleEndian>()?;
     let offset_table = cur.read_i64::<LittleEndian>()? as u64;
     let length_table = cur.read_i64::<LittleEndian>()? as u64;
@@ -338,6 +341,7 @@ pub(crate) fn parse_kfbf_tile_info(
     };
 
     Ok(KfbfTileInfo {
+        pos_x,
         pos_y,
         width: tile_w,
         height: tile_h,

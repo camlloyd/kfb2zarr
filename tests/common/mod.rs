@@ -236,6 +236,7 @@ pub fn make_kfbf_channel_metadata_block(
 /// `tile_h`: tile height in pixels (byte 16).
 /// `magnification`: zoom magnification as f32 (byte 20); 20.0 = full resolution.
 pub fn make_tile_info_section(
+    x_native: i32,
     y_native: i32,
     tile_w: i32,
     tile_h: i32,
@@ -245,7 +246,7 @@ pub fn make_tile_info_section(
 ) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&TILE_INFO_START);
-    buf.extend_from_slice(&[0u8; 4]); // skip 4
+    buf.write_i32::<LittleEndian>(x_native).unwrap();
     buf.write_i32::<LittleEndian>(y_native).unwrap();
     buf.write_i32::<LittleEndian>(tile_w).unwrap();
     buf.write_i32::<LittleEndian>(tile_h).unwrap();

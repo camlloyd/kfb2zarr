@@ -94,45 +94,17 @@ fn write_ome_xml_metadata(
     let acquisition_date = format_utc_timestamp(header.scan_time())
         .map(|timestamp| format!("<AcquisitionDate>{timestamp}</AcquisitionDate>"))
         .unwrap_or_default();
-    let channels = if !header.channels().is_empty() {
-        header
-            .channels()
-            .iter()
-            .enumerate()
-            .map(|(i, ch)| {
-                let name = escape_xml_attr(&ch.name);
-                let color = ome_xml_color(ch.color_rgb);
-                format!(
-                    r#"<Channel ID="Channel:0:{i}" Name="{name}" Color="{color}" SamplesPerPixel="1"/>"#
-                )
-            })
-            .collect::<String>()
-    } else {
-        (0..channel_count)
-            .map(|i| {
-                let (name, color_rgb) = if header.is_fluorescence() {
-                    let fluorescence_colors = [
-                        ("0000FF", [0, 0, 255]),
-                        ("00FF00", [0, 255, 0]),
-                        ("FF0000", [255, 0, 0]),
-                        ("FFFF00", [255, 255, 0]),
-                        ("FF00FF", [255, 0, 255]),
-                        ("00FFFF", [0, 255, 255]),
-                    ];
-                    let (_, color_rgb) = fluorescence_colors[i % fluorescence_colors.len()];
-                    (format!("Channel {}", i + 1), color_rgb)
-                } else {
-                    let rgb_channels = [("R", [255, 0, 0]), ("G", [0, 255, 0]), ("B", [0, 0, 255])];
-                    let (name, color_rgb) = rgb_channels.get(i).copied().unwrap_or(("Channel", [255, 255, 255]));
-                    (name.to_string(), color_rgb)
-                };
-                let color = ome_xml_color(color_rgb);
-                format!(
-                    r#"<Channel ID="Channel:0:{i}" Name="{name}" Color="{color}" SamplesPerPixel="1"/>"#
-                )
-            })
-            .collect::<String>()
-    };
+    let channels = channel_names_and_colors(header)
+        .iter()
+        .enumerate()
+        .map(|(i, (name, color_rgb))| {
+            let name = escape_xml_attr(name);
+            let color = ome_xml_color(*color_rgb);
+            format!(
+                r#"<Channel ID="Channel:0:{i}" Name="{name}" Color="{color}" SamplesPerPixel="1"/>"#
+            )
+        })
+        .collect::<String>();
 
     let planes = if !header.channels().is_empty() {
         header
@@ -248,13 +220,40 @@ fn omero_channel(color: Color, label: &str) -> Channel {
     }
 }
 
-fn rgb_omero_channels() -> Vec<Channel> {
-    vec![
-        omero_channel(Color { r: 255, g: 0, b: 0 }, "R"),
-        omero_channel(Color { r: 0, g: 255, b: 0 }, "G"),
-        omero_channel(Color { r: 0, g: 0, b: 255 }, "B"),
-    ]
+/// Name and display color of each channel. Uses the scanner's channels when the file
+/// records them, and defaults otherwise.
+fn channel_names_and_colors(header: &KfbHeader) -> Vec<(String, [u8; 3])> {
+    if !header.channels().is_empty() {
+        return header
+            .channels()
+            .iter()
+            .map(|ch| (ch.name.clone(), ch.color_rgb))
+            .collect();
+    }
+    if !header.is_fluorescence() {
+        return RGB
+            .iter()
+            .map(|&(name, rgb)| (name.to_string(), rgb))
+            .collect();
+    }
+    (0..header.channel_count())
+        .map(|i| {
+            let color = FLUORESCENCE_PALETTE[i % FLUORESCENCE_PALETTE.len()];
+            (format!("Channel {}", i + 1), color)
+        })
+        .collect()
 }
+
+const RGB: [(&str, [u8; 3]); 3] = [("R", [255, 0, 0]), ("G", [0, 255, 0]), ("B", [0, 0, 255])];
+
+const FLUORESCENCE_PALETTE: [[u8; 3]; 6] = [
+    [0, 0, 255],
+    [0, 255, 0],
+    [255, 0, 0],
+    [255, 255, 0],
+    [255, 0, 255],
+    [0, 255, 255],
+];
 
 fn write_associated_image(
     store: Arc<zarrs::filesystem::FilesystemStore>,
@@ -298,7 +297,10 @@ fn write_associated_image(
             metadata: None,
         }]),
         omero: Some(Omero {
-            channels: rgb_omero_channels(),
+            channels: RGB
+                .iter()
+                .map(|&(name, [r, g, b])| omero_channel(Color { r, g, b }, name))
+                .collect(),
             other: serde_json::Map::from_iter([
                 ("id".into(), json!(1)),
                 ("name".into(), json!(name)),
@@ -552,53 +554,10 @@ where
             }
         })
         .collect();
-    let channels: Vec<Channel> = if !header.channels().is_empty() {
-        header
-            .channels()
-            .iter()
-            .map(|ch| {
-                omero_channel(
-                    Color {
-                        r: ch.color_rgb[0],
-                        g: ch.color_rgb[1],
-                        b: ch.color_rgb[2],
-                    },
-                    &ch.name,
-                )
-            })
-            .collect()
-    } else if header.is_fluorescence() {
-        let fluorescence_colors = [
-            Color { r: 0, g: 0, b: 255 },
-            Color { r: 0, g: 255, b: 0 },
-            Color { r: 255, g: 0, b: 0 },
-            Color {
-                r: 255,
-                g: 255,
-                b: 0,
-            },
-            Color {
-                r: 255,
-                g: 0,
-                b: 255,
-            },
-            Color {
-                r: 0,
-                g: 255,
-                b: 255,
-            },
-        ];
-        (0..channel_count)
-            .map(|i| {
-                omero_channel(
-                    fluorescence_colors[i % fluorescence_colors.len()],
-                    &format!("Channel {}", i + 1),
-                )
-            })
-            .collect()
-    } else {
-        rgb_omero_channels()
-    };
+    let channels: Vec<Channel> = channel_names_and_colors(header)
+        .into_iter()
+        .map(|(name, [r, g, b])| omero_channel(Color { r, g, b }, &name))
+        .collect();
 
     let associated_attrs: Vec<_> = associated_images
         .iter()

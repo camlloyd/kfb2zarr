@@ -607,6 +607,8 @@ fn brightfield_omero_defaults_to_three_rgb_channels() {
     assert_eq!(channels[0]["color"], "FF0000");
     assert_eq!(channels[1]["color"], "00FF00");
     assert_eq!(channels[2]["color"], "0000FF");
+    let xml = std::fs::read_to_string(out.join("OME/METADATA.ome.xml")).unwrap();
+    assert!(xml.contains(r#"Name="R" Color="-16776961""#));
 }
 
 #[test]
@@ -785,9 +787,10 @@ fn fluorescence_zarr_uses_source_channel_count() {
     assert_eq!(z["fill_value"], 0);
     let channels = read_json(&out.join(".zattrs"))["omero"]["channels"].clone();
     assert_eq!(channels.as_array().unwrap().len(), 6);
+    assert_eq!(channels[5]["color"], "00FFFF");
     let xml = std::fs::read_to_string(out.join("OME/METADATA.ome.xml")).unwrap();
     assert!(xml.contains(r#"SizeC="6""#));
-    assert!(xml.contains(r#"Name="Channel 6""#));
+    assert!(xml.contains(r#"Name="Channel 6" Color="16777215""#));
 }
 
 fn fluorescence_with_two_named_channels() -> (NamedTempFile, TempDir, PathBuf) {

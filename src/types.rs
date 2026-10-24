@@ -1,5 +1,6 @@
 /// Identifies the role of an associated image embedded in the slide file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AssociatedImageKind {
     /// Slide label image.
     Label,

@@ -69,14 +69,6 @@ pub(crate) fn parse_header(data: &[u8]) -> Result<KfbHeader, KfbError> {
             parse_kfbf_tile_size(data).unwrap_or(kfb_tile_size),
         ),
     };
-    let max_dim = base_width.max(base_height) as f64;
-    // The tile_size field is nominal — scanners don't always honour it exactly.
-    // We use it here because the real tile dimensions aren't available until decode.
-    let effective_tile = tile_size.max(1) as f64;
-    // Count multi-tile levels, then add 1 for the single-tile thumbnail.
-    let tile_levels = (max_dim / effective_tile).log2().ceil().max(0.0) as i32;
-    let zoom_levels = (tile_levels + 1).max(1);
-
     let (channel_count, channels) = if format == KfbFormat::Fluorescence {
         parse_kfbf_channel_metadata(data, channel_count)
     } else {
@@ -94,7 +86,6 @@ pub(crate) fn parse_header(data: &[u8]) -> Result<KfbHeader, KfbError> {
         image_cap_res,
         tile_size,
         channel_count,
-        zoom_levels,
         channels,
     }))
 }

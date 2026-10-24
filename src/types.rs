@@ -34,7 +34,6 @@ pub struct KfbHeader {
     image_cap_res: f64,
     tile_size: i32,
     channel_count: usize,
-    pub(crate) zoom_levels: i32,
     channels: Vec<ChannelMetadata>,
 }
 
@@ -56,7 +55,6 @@ pub(crate) struct KfbHeaderFields {
     pub image_cap_res: f64,
     pub tile_size: i32,
     pub channel_count: usize,
-    pub zoom_levels: i32,
     pub channels: Vec<ChannelMetadata>,
 }
 
@@ -79,7 +77,6 @@ impl KfbHeader {
             image_cap_res: fields.image_cap_res,
             tile_size: fields.tile_size,
             channel_count: fields.channel_count,
-            zoom_levels: fields.zoom_levels,
             channels: fields.channels,
         }
     }
@@ -118,11 +115,6 @@ impl KfbHeader {
     /// Number of channels in the image.
     pub fn channel_count(&self) -> usize {
         self.channel_count
-    }
-    /// Number of resolution levels, estimated from the header's image size and
-    /// nominal tile size.
-    pub fn zoom_levels(&self) -> i32 {
-        self.zoom_levels
     }
     /// Physical pixel size in microns per pixel (MPP).
     pub fn mpp(&self) -> f64 {

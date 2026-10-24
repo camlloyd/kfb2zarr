@@ -1,9 +1,9 @@
 mod common;
 
 use byteorder::{BigEndian, LittleEndian, WriteBytesExt};
+use kfb2zarr::AssociatedImageKind;
 use kfb2zarr::KfbError;
 use kfb2zarr::KfbReader;
-use kfb2zarr::types::AssociatedImageKind;
 use std::io::Write;
 use tempfile::NamedTempFile;
 

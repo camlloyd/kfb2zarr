@@ -38,11 +38,11 @@
 
 pub(crate) mod convert;
 pub(crate) mod decode;
-pub mod error;
+pub(crate) mod error;
 pub(crate) mod parser;
 pub(crate) mod pyramid;
-pub mod reader;
-pub mod types;
+pub(crate) mod reader;
+pub(crate) mod types;
 pub(crate) mod zarr;
 
 pub use convert::{convert_to_zarr, convert_to_zarr_with_chunk_size};

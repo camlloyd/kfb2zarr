@@ -43,8 +43,10 @@ impl KfbReader {
     ///
     /// # Errors
     ///
-    /// Returns [`KfbError::Io`] if the file cannot be opened or mapped, and
-    /// [`KfbError::InvalidMagic`] if the file does not contain valid KFB magic bytes.
+    /// Returns [`KfbError::Io`] if the file cannot be opened or mapped, or is too short
+    /// to hold a header or tile record, [`KfbError::InvalidMagic`] if the file does not
+    /// contain valid KFB magic bytes, and [`KfbError::InvalidOffset`] if the tile index
+    /// points outside the file.
     pub fn open(path: &Path) -> Result<Self, KfbError> {
         let file = File::open(path)?;
         let mmap = unsafe { Mmap::map(&file)? };

@@ -24,9 +24,9 @@ use crate::types::{AssociatedImageKind, DecodedAssociatedImage};
 ///
 /// # Errors
 ///
-/// Returns [`KfbError::Io`] or [`KfbError::InvalidMagic`] if the input file cannot be
-/// read, [`KfbError::JpegDecode`] if any tile fails to decode, and [`KfbError::ZarrWrite`]
-/// if writing the output store fails.
+/// Returns [`KfbError::Io`], [`KfbError::InvalidMagic`] or [`KfbError::InvalidOffset`]
+/// if the input file cannot be read, [`KfbError::JpegDecode`] if any tile fails to decode,
+/// and [`KfbError::ZarrWrite`] if writing the output store fails.
 pub fn convert_to_zarr(input: &Path, output: &Path) -> Result<(), KfbError> {
     convert_to_zarr_with_chunk_size(input, output, None)
 }

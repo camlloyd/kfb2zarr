@@ -2,6 +2,7 @@ use thiserror::Error;
 
 /// Errors that can be returned by this crate.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum KfbError {
     /// An underlying I/O operation failed.
     #[error("IO error: {0}")]

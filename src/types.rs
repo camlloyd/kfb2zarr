@@ -4,7 +4,9 @@
 pub enum AssociatedImageKind {
     /// Slide label image.
     Label,
-    /// Secondary slide thumbnail image.
+    /// Low-resolution overview of the whole glass slide.
+    Macro,
+    /// Slide thumbnail image.
     Thumbnail,
 }
 
@@ -232,7 +234,7 @@ impl AssociatedImage {
         }
     }
 
-    /// Whether this is a label or thumbnail image.
+    /// Which kind of associated image this is.
     pub fn kind(&self) -> AssociatedImageKind {
         self.kind
     }

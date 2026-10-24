@@ -145,6 +145,11 @@ pub fn set_tile_index(buf: &mut [u8], first_section: usize) {
     buf[0x44..0x4c].copy_from_slice(&(first_section as u64).to_le_bytes());
 }
 
+/// Point the header's thumbnail pointer (offset 0x3c) at the thumbnail section.
+pub fn set_thumbnail_offset(buf: &mut [u8], section: usize) {
+    buf[0x3c..0x44].copy_from_slice(&(section as u64).to_le_bytes());
+}
+
 pub const THUMBNAIL_START: [u8; 4] = [0xF1, 0x02, 0xEE, 0xEE];
 pub const LABEL_START: [u8; 4] = [0xF1, 0x03, 0xEE, 0xEE];
 

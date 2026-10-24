@@ -138,7 +138,7 @@ fn reader_parses_kfb_label_associated_image() {
 }
 
 #[test]
-fn reader_parses_kfb_thumbnail_associated_image() {
+fn reader_parses_kfb_macro_associated_image() {
     let mut f = NamedTempFile::new().unwrap();
     let header = common::make_header_section(common::HeaderSection {
         tile_count: 0,
@@ -148,10 +148,85 @@ fn reader_parses_kfb_thumbnail_associated_image() {
     });
     f.write_all(&header).unwrap();
     let fake_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
-    let thumbnail_section = common::make_associated_image_section(
+    let macro_section = common::make_associated_image_section(
         common::THUMBNAIL_START,
         300,
         120,
+        fake_jpeg.len() as i32,
+    );
+    f.write_all(&macro_section).unwrap();
+    f.write_all(&fake_jpeg).unwrap();
+    f.flush().unwrap();
+
+    let reader = KfbReader::open(f.path()).unwrap();
+    assert_eq!(reader.associated_images().len(), 1);
+    assert_eq!(
+        reader.associated_images()[0].kind(),
+        AssociatedImageKind::Macro
+    );
+}
+
+#[test]
+fn reader_parses_kfb_macro_then_thumbnail_associated_images() {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut header = common::make_header_section(common::HeaderSection {
+        tile_count: 0,
+        spend_time: 60,
+        scan_time: 1700000000,
+        ..Default::default()
+    });
+    let thumbnail_pos = header.len() + 52 + 4; // after the macro section and its JPEG
+    common::set_thumbnail_offset(&mut header, thumbnail_pos);
+    f.write_all(&header).unwrap();
+    let macro_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let macro_section = common::make_associated_image_section(
+        common::THUMBNAIL_START,
+        300,
+        120,
+        macro_jpeg.len() as i32,
+    );
+    f.write_all(&macro_section).unwrap();
+    f.write_all(&macro_jpeg).unwrap();
+    let thumbnail_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let thumbnail_section = common::make_associated_image_section(
+        common::THUMBNAIL_START,
+        60,
+        60,
+        thumbnail_jpeg.len() as i32,
+    );
+    f.write_all(&thumbnail_section).unwrap();
+    f.write_all(&thumbnail_jpeg).unwrap();
+    f.flush().unwrap();
+
+    let reader = KfbReader::open(f.path()).unwrap();
+    assert_eq!(reader.associated_images().len(), 2);
+    assert_eq!(
+        reader.associated_images()[0].kind(),
+        AssociatedImageKind::Macro
+    );
+    assert_eq!(
+        reader.associated_images()[1].kind(),
+        AssociatedImageKind::Thumbnail
+    );
+}
+
+#[test]
+fn reader_parses_kfb_thumbnail_associated_image_without_macro() {
+    let mut f = NamedTempFile::new().unwrap();
+    let mut header = common::make_header_section(common::HeaderSection {
+        tile_count: 0,
+        spend_time: 60,
+        scan_time: 1700000000,
+        ..Default::default()
+    });
+    let thumbnail_pos = header.len();
+    common::set_thumbnail_offset(&mut header, thumbnail_pos);
+    f.write_all(&header).unwrap();
+    let fake_jpeg = vec![0xFFu8, 0xD8, 0xFF, 0xD9];
+    let thumbnail_section = common::make_associated_image_section(
+        common::THUMBNAIL_START,
+        60,
+        60,
         fake_jpeg.len() as i32,
     );
     f.write_all(&thumbnail_section).unwrap();
@@ -435,7 +510,7 @@ fn reader_parses_kfbf_tile_positions_from_records() {
 }
 
 #[test]
-fn reader_parses_kfbf_thumbnail_associated_image() {
+fn reader_parses_kfbf_macro_associated_image() {
     let mut f = NamedTempFile::new().unwrap();
     let mut data = vec![0u8; 192];
     data[0..4].copy_from_slice(&common::HEADER_START);
@@ -481,7 +556,7 @@ fn reader_parses_kfbf_thumbnail_associated_image() {
     let reader = KfbReader::open(f.path()).unwrap();
     assert_eq!(reader.associated_images().len(), 1);
     let img = &reader.associated_images()[0];
-    assert_eq!(img.kind(), AssociatedImageKind::Thumbnail);
+    assert_eq!(img.kind(), AssociatedImageKind::Macro);
     assert_eq!(img.width(), 560);
     assert_eq!(img.height(), 536);
     assert_eq!(

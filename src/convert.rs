@@ -4,7 +4,7 @@ use crate::decode::decode_jpeg;
 use crate::error::KfbError;
 use crate::pyramid::Pyramid;
 use crate::reader::KfbReader;
-use crate::types::{AssociatedImageKind, DecodedAssociatedImage};
+use crate::types::DecodedAssociatedImage;
 
 /// Read a `.kfb` file and write an OME-Zarr v0.4 hierarchy to `output`.
 ///
@@ -51,12 +51,11 @@ pub fn convert_to_zarr_with_chunk_size(
     let decoded_associated = reader
         .associated_images()
         .iter()
-        .filter(|img| img.kind() == AssociatedImageKind::Label)
         .map(|img| {
             let jpeg = reader.read_associated_bytes(img)?;
             let (pixels, width, height) = decode_jpeg(jpeg)?;
             Ok(DecodedAssociatedImage {
-                kind: AssociatedImageKind::Label,
+                kind: img.kind(),
                 pixels,
                 width: width as u64,
                 height: height as u64,

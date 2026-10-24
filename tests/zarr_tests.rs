@@ -25,17 +25,19 @@ fn read_json(path: &Path) -> Value {
 }
 
 fn synth_brightfield_kfb(section: common::HeaderSection) -> NamedTempFile {
-    synth_brightfield_kfb_with_label(section, None)
+    synth_brightfield_kfb_with_associated(section, None)
 }
 
-fn synth_brightfield_kfb_with_label(
+/// One brightfield tile, optionally followed by a label and a macro section that share
+/// the given width, height and JPEG.
+fn synth_brightfield_kfb_with_associated(
     section: common::HeaderSection,
-    label: Option<(i32, i32, &[u8])>,
+    associated: Option<(i32, i32, &[u8])>,
 ) -> NamedTempFile {
     let mut f = NamedTempFile::new().unwrap();
     let mut buf = common::make_header_section(section);
 
-    if let Some((w, h, jpeg)) = label {
+    if let Some((w, h, jpeg)) = associated {
         // Patch label pointer at 0x38 to point at the upcoming label block.
         let label_offset = buf.len() as u32;
         buf[0x38..0x3c].copy_from_slice(&label_offset.to_le_bytes());
@@ -43,6 +45,12 @@ fn synth_brightfield_kfb_with_label(
         let label_section =
             common::make_associated_image_section(common::LABEL_START, w, h, jpeg.len() as i32);
         buf.extend_from_slice(&label_section);
+        buf.extend_from_slice(jpeg);
+
+        // A macro section reuses the label JPEG so both images are written.
+        let macro_section =
+            common::make_associated_image_section(common::THUMBNAIL_START, w, h, jpeg.len() as i32);
+        buf.extend_from_slice(&macro_section);
         buf.extend_from_slice(jpeg);
     }
 
@@ -672,12 +680,12 @@ fn datasets_match_levels_and_scale_vectors() {
 }
 
 // =========================================================================
-// brightfield with associated label image
+// brightfield with associated label and macro images
 // =========================================================================
 
 #[test]
-fn slide_label_is_written_as_associated_image() {
-    let f = synth_brightfield_kfb_with_label(
+fn slide_label_and_macro_are_written_as_associated_images() {
+    let f = synth_brightfield_kfb_with_associated(
         common::HeaderSection {
             tile_count: 1,
             base_width: 1,
@@ -694,11 +702,14 @@ fn slide_label_is_written_as_associated_image() {
     let root_attrs = read_json(&out.join(".zattrs"));
     assert_eq!(
         root_attrs["associated_images"],
-        json!([{"kind": "label", "path": "associated/label"}])
+        json!([
+            {"kind": "label", "path": "associated/label"},
+            {"kind": "macro", "path": "associated/macro"}
+        ])
     );
     assert_eq!(
         read_json(&out.join("associated/.zattrs"))["images"],
-        json!(["label"])
+        json!(["label", "macro"])
     );
     assert_eq!(
         read_json(&out.join("associated/label/.zattrs"))["multiscales"][0]["datasets"][0]["path"],

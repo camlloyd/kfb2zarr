@@ -71,6 +71,7 @@ impl KfbReader {
         tiles: &[TileInfo],
     ) -> Result<Vec<AssociatedImage>, KfbError> {
         let tile_ranges = tile_payload_ranges(tiles);
+        let thumbnail_offset = read_u64_le(data, 0x3c)?;
         let mut associated = Vec::new();
         let mut i = 0usize;
         let mut range_index = 0usize;
@@ -88,7 +89,13 @@ impl KfbReader {
             let kind = if marker == LABEL_START {
                 AssociatedImageKind::Label
             } else if marker == THUMBNAIL_START {
-                AssociatedImageKind::Thumbnail
+                // The macro and the thumbnail share this marker. Header offset 0x3c
+                // points at the thumbnail.
+                if i as u64 == thumbnail_offset {
+                    AssociatedImageKind::Thumbnail
+                } else {
+                    AssociatedImageKind::Macro
+                }
             } else {
                 i += 1;
                 continue;
